@@ -1,0 +1,810 @@
+# Poliestetica - Project Context
+
+## 🏥 Panoramica del Progetto
+
+**Azienda:** Poliestetica Pignatelli Srl  
+**Settore:** Poliambulatorio medico specializzato in medicina estetica  
+**Sede:** Via Battaglia 71/C, 35020 Albignasego (PD)  
+**Responsabile:** Elio Pignatelli, Amministratore Unico
+
+### Obiettivo
+Sistema di Gestione Compensi Medici automatizzato per:
+- Import automatico fatture da Fatture in Cloud via API
+- Calcolo automatico compensi con formule personalizzabili per medico
+- Gestione anomalie e errori di importazione
+- Report e export in Excel/PDF
+- Chiusura mensile con controlli e blocco modifiche
+- Scalabilità per futura seconda sede
+
+## 🏗️ Architettura Tecnica
+
+### Stack Tecnologico
+- **Frontend:** Next.js 14 con App Router
+- **Database:** Supabase (PostgreSQL gestito + Auth) - Piano Pro consigliato
+- **Deployment:** Vercel
+- **Styling:** Tailwind CSS
+- **Icone:** Lucide React
+- **State Management:** Zustand (previsto)
+
+### Struttura Cartelle
+src/
+├─ app/                     # App Router (route = folder)
+│  ├─ layout.tsx            # shell globale (Header, Navigation, <main>)
+│  ├─ page.tsx              # dashboard (root)
+│  ├─ import/page.tsx       # Import Fatture
+│  ├─ medici/page.tsx       # Gestione Medici
+│  └─ compensi/page.tsx     # Calcola Compensi
+│
+├─ components/              # SOLO UI riusabili (Client Components)
+│  ├─ ui/                   # atomi piccoli (Button, Card, Badge, Modal)
+│  ├─ FatturaTable.tsx      # pezzi dei feature‑page che servono altrove
+│  └─ MenuCard.tsx
+│
+├─ lib/                     # puro JavaScript/TypeScript (zero React)
+│  ├─ utils.ts              # formatter, parser, ecc.
+│  ├─ hooks.ts              # hook leggeri (useDebounce, useMediaQuery…)
+│  └─ types.ts              # shared types & enums
+│
+├─ services/                # chiamate di rete o wrapper DB
+│  ├─ fatture.ts            # fetchFatture(), syncFatture()
+│  └─ medici.ts
+│
+└─ store.ts                 # piccolo Zustand/Context per stato globale
+
+## 📦 Moduli Principali
+
+### 1. Dashboard ✅
+- Menu a 6 card con illustrazioni personalizzate
+- Navigazione superiore persistente
+- Sistema notifiche
+- Selector ruolo (Admin/Segretaria/Responsabile)
+
+### 2. Import Fatture ✅
+- Sincronizzazione da Fatture in Cloud API
+- Gestione anomalie (medico mancante, codice sconosciuto, duplicati)
+- Import incrementale (solo fatture nuove)
+- Serie fatture: Principale, IVA, M (ignora serie E)
+- Export Excel/PDF con filtro date
+- Import automatico alle 22:00
+
+### 3. Gestione Medici ✅ (v4)
+- CRUD medici completo
+- Rule builder per compensi:
+  - Percentuale su netto/lordo
+  - A scaglioni: €X ogni €Y imponibile
+  - Quota fissa: €X ogni Y prestazioni
+- Import/Export Excel per costi prodotti
+- Gestione eccezioni per prestazione/prodotto
+- Unità di misura prodotti (fiala, ml, siringa, ecc.)
+- Tab Simulatore compensi (solo admin)
+
+### 4. Calcola Compensi ✅ (v2)
+- Sistema chiusura gerarchico: medici → mese generale
+- Gestione fatture con/senza IVA:
+  - Con IVA: FT/2024/123IVA (22%)
+  - Senza IVA: FT/2024/123 (lordo = netto)
+- Workflow calcolo compensi
+- Modifica manuale con tracciabilità
+- Gestione anomalie prodotti non mappati
+- Export Excel/PDF per tipologia fattura
+
+### 5. Da Sviluppare
+- **Statistiche:** Dashboard KPI
+- **Archivio:** Storico periodi + storico import + report
+
+## 🔑 Sistema Permessi
+
+| Azione | Admin | Segretaria/Responsabile |
+|--------|-------|------------------------|
+| Visualizzare dati | ✅ | ✅ |
+| Modificare compensi | ✅ | ✅ (solo se medico+mese aperti) |
+| Modificare costi prodotti | ✅ | ✅ |
+| Modificare anagrafica medici | ✅ | ❌ |
+| Chiudere singolo medico | ✅ | ✅ |
+| Riaprire singolo medico | ✅ | ✅ (solo se mese aperto) |
+| Chiudere mese | ✅ | ✅ |
+| Riaprire mese | ✅ | ❌ |
+| Download Excel/PDF | ✅ | ✅ (dopo chiusura mese) |
+
+## 🎨 Design System
+
+### Colori Brand
+- Primary: `#03A6A6` (turchese)
+- Secondary: `#6192A9` (blu)
+- Accent: `#8C786C`, `#D9AC9C`, `#E9EDF2`
+
+### UI/UX Guidelines
+- Modal React personalizzati (no alert/confirm nativi per compatibilità iframe)
+- Stili inline per colori custom (problemi con Tailwind in artifacts)
+- Campi read-only con sfondo grigio per non-admin
+- Indicatori visivi stati (lucchetto aperto/chiuso)
+
+## 🔄 Workflow Chiave
+
+### Chiusura Mensile
+1. **Chiusura Medici** (reversibile)
+   - Verifica fatture aggiornate (API check)
+   - Checklist: fatture importate, anomalie risolte, calcoli verificati
+   - Blocco automatico se anomalie presenti
+
+2. **Chiusura Mese** (irreversibile)
+   - Condizione: TUTTI i medici chiusi
+   - Abilita passaggio al mese successivo
+   - Consolida dati per reportistica
+
+### Calcolo Compensi
+Per ogni voce fattura:
+
+Determina base (lordo o netto secondo regola)
+Se lordo = netto (fatture senza IVA) → usa netto
+Detrae costo prodotto (se detraiCosto = true)
+Applica regola compenso (%, scaglioni, fisso)
+Risultato: compenso finale
+
+
+**⚠️ NOTA:** Attualmente usa 50% fisso per demo. In produzione userà regole reali da Gestione Medici.
+
+## 🔌 Integrazioni
+
+### Fatture in Cloud API
+```javascript
+// Verifica fatture aggiornate
+GET /c/{company_id}/issued_documents
+?supplier_id={medicoId}
+&modified_after={lastImportDate}
+&fields=id,number,modified_at
+Supabase (previsto)
+
+Autenticazione utenti
+Storage fatture e compensi
+Real-time updates
+Backup point-in-time (Piano Pro)
+
+📝 Note Importanti per lo Sviluppo
+Da Implementare per Produzione
+
+Integrazione Gestione Medici ↔ Calcola Compensi
+
+Leggere regole reali invece di 50% fisso
+Sincronizzare costi prodotti
+Aggiornare listino quando si mappa nuovo prodotto
+
+
+Performance
+
+Virtualizzazione liste lunghe (react-window)
+Lazy loading dettagli
+Ottimizzare useMemo/useCallback
+
+
+Testing
+
+Workflow chiusura con edge cases
+Calcolo compensi con diverse regole
+Gestione concorrenza modifiche
+
+
+Audit Trail
+
+Log completo modifiche
+Chi/quando/cosa per compliance
+
+
+
+Convenzioni Codice
+
+TypeScript strict mode
+React functional components con hooks
+Naming: camelCase per variabili, PascalCase per componenti
+Commenti in italiano per logica business
+
+Deployment
+
+Branch main → produzione automatica su Vercel
+Branch develop → staging
+Environment variables in .env.local
+
+🚀 Quick Start
+bash# Clone repository
+git clone [repo-url]
+
+# Install dependencies
+npm install
+
+# Environment setup
+cp .env.example .env.local
+# Configura Supabase e Fatture in Cloud API keys
+
+# Development
+npm run dev
+
+# Build
+npm run build
+
+# Test (quando implementati)
+npm run test
+📞 Contatti Tecnici
+Per domande tecniche sul progetto, contattare il team di sviluppo.
+
+Ultimo aggiornamento: [Data corrente]
+Versione: 1.0.0
+
+Questo file `project_context.md` fornisce tutto il contesto necessario per Claude Code o altri sviluppatori che devono lavorare sul progetto. Include:
+
+1. **Panoramica completa** del progetto e obiettivi
+2. **Architettura tecnica** dettagliata con struttura cartelle
+3. **Descrizione moduli** con stato di implementazione
+4. **Sistema permessi** in formato tabellare chiaro
+5. **Design system** con colori e guidelines
+6. **Workflow chiave** spiegati passo-passo
+7. **Integrazioni API** con esempi
+8. **Note per produzione** con todo list chiara
+9. **Quick start** per iniziare velocemente
+
+Il documento è strutturato per essere facilmente navigabile e fornire rapidamente le informazioni necessarie per comprendere e lavorare sul progetto.
+
+markdown# 📦 MODULO IMPORT FATTURE
+
+## DESCRIZIONE
+Modulo per sincronizzazione e import fatture da Fatture in Cloud API con gestione anomalie e tracciabilità multi-prodotto per prestazione.
+
+## NUOVA STRUTTURA FATTURE (IMPORTANTE)
+
+### Cambio Strutturale
+Per gestire limiti di Fatture in Cloud e tracciare più prodotti per prestazione, ora separiamo:
+
+**PRIMA:**
+[FLL] "Filler labbra - Allergan" | €350 | 2 fiale
+
+**ORA:**
+[FLL] "Filler labbra"                    | €350   (prestazione principale)
+[FLL-ALL] "FILLER LABBRA - ALLERGAN"     | €0     2 fiale (prodotto utilizzato)
+[FLL-JUV] "FILLER LABBRA - JUVEDERM"     | €0     1 fiala (prodotto utilizzato)
+
+### Regole Identificazione
+- **Prestazione**: importo > 0, codice semplice (BTX, FLL, CNS)
+- **Prodotto**: importo = 0, codice composto (BTX-ALL, FLL-JUV)
+- **Associazione**: stesso prefisso codice nella stessa fattura
+
+## ANOMALIE E SIMBOLI
+
+### Livello Fattura
+- 👤 `medico_mancante` - Medico non identificato
+
+### Livello Voci
+- 💰 `prodotto_con_prezzo` - Prodotto con prezzo ≠ 0 (se esiste prestazione)
+- 🔗 `prodotto_orfano` - Prodotto senza prestazione madre
+- 📦 `prestazione_incompleta` - Prestazione che richiede prodotti
+- 🔁 `prestazione_duplicata` - Prestazione duplicata nella fattura
+- ❓ `codice_sconosciuto` - Codice trattamento non riconosciuto
+- ⚖️ `unita_incompatibile` - Unità di misura errata
+- 🔢 `quantita_anomala` - Quantità sopra soglia
+
+## FLUSSO OPERATIVO
+
+```mermaid
+1. SINCRONIZZA (da Fatture in Cloud)
+   ↓
+2. IDENTIFICA ANOMALIE
+   ├─ Controlla medico
+   ├─ Associa prodotti a prestazioni
+   └─ Valida codici/quantità/unità
+   ↓
+3. RISOLVI ANOMALIE (UI interattiva)
+   ├─ Assegna medico
+   ├─ Correggi prezzi prodotti
+   ├─ Aggiungi prestazioni mancanti
+   └─ Mappa prodotti orfani
+   ↓
+4. IMPORT DATABASE (solo fatture senza anomalie)
+GESTIONE ANOMALIE UI
+Prodotto con prezzo (con prestazione presente)
+⚠️ BOTOX VISO - ALLERGAN    2 fiale    €120.00
+   └─ Prodotto con prezzo non valido
+   └─ [Imposta a €0]
+Prodotto orfano
+🔗 FILLER LABBRA - JUVEDERM    2 ml    €200.00
+   └─ Prodotto senza prestazione associata
+   └─ [🗑️ Elimina] [➕ Aggiungi prestazione]
+Prestazione incompleta
+📦 Botox viso    €350.00
+   └─ Prestazione richiede indicazione prodotti
+   └─ [➕ Aggiungi prodotti utilizzati]
+CONFIGURAZIONE PRESTAZIONI
+javascriptconfigPrestazioni = {
+  'BTX': { descrizione: 'Botox viso', richiedeProdotti: true },
+  'FLL': { descrizione: 'Filler labbra', richiedeProdotti: true },
+  'CNS': { descrizione: 'Consulenza', richiedeProdotti: false },
+  'PEL': { descrizione: 'Peeling', richiedeProdotti: false }
+}
+
+// In produzione: da database o API
+GET /api/config/prestazioni
+GET /api/prestazioni/{codice}/prodotti
+PROBLEMI NOTI DA CORREGGERE
+1. Gestione Simboli Anomalie
+
+Problema: Risolvendo una anomalia spariscono tutti i simboli
+Atteso: Mostrare simboli concatenati (es: "👤💰📦")
+Fix: Aggiornare getStatoIcon() per gestire array anomalie
+
+2. Logica Selezione
+
+Problema: Fatture con anomalie vengono marcate selezionabili
+Atteso: Selezionabili SOLO se zero anomalie
+Fix: Funzione haAnomalie() che verifica tutto
+
+3. Dati Demo Errati
+
+Problema: Anomalie contraddittorie (es: FLL e FLL-JUV entrambi anomali)
+Fix: Correggere dati per casi realistici
+
+4. Pulsanti Non Funzionanti
+
+Problema: "Imposta a €0" e altri non aggiornano stato
+Fix: Verificare handler e aggiornamento state
+
+REGOLE BUSINESS CRITICHE
+
+Import consentito: SOLO fatture senza anomalie
+Risoluzione progressiva: Una anomalia alla volta
+Stato verificata: SOLO quando tutte anomalie risolte
+Serie ignorate: Serie "E" sempre esclusa
+Prodotti sempre a €0: Eccezione = anomalia
+Associazione per codice: BTX → BTX-ALL, BTX-XEO, etc.
+
+INTEGRAZIONE CON ALTRI MODULI
+
+Calcola Compensi: Riceve fatture importate, somma costi prodotti
+Gestione Medici: Fornisce configurazione prestazioni/prodotti
+Dashboard: Mostra contatori fatture da importare
+
+API ENDPOINTS (PRODUZIONE)
+GET  /api/fatture/sync          # Sincronizza da Fatture in Cloud
+POST /api/fatture/import        # Importa fatture selezionate
+GET  /api/fatture/anomalie      # Lista fatture con anomalie
+PUT  /api/fatture/{id}/risolvi  # Risolvi anomalia specifica
+NOTE TECNICHE
+
+Paginazione: 50 fatture/pagina
+Vista raggruppata: Per medico
+Export: Excel/PDF filtrati
+Cache prestazioni: In memoria durante sessione
+Modal React: No alert/confirm nativi (iframe)
+
+📐 SISTEMA CODIFICA TRATTAMENTI
+STRUTTURA CODICI
+I codici trattamento sono composti da massimo 7 caratteri:
+[N]PPP[MMM]
+ │  │   └─> Codice Prodotto/Macchinario (3 caratteri)
+ │  └─────> Codice Prestazione (3 caratteri) - SEMPRE PRESENTE
+ └────────> Cifra esenzione IVA (1 numero) - OPZIONALE, DA IGNORARE
+Esempi:
+
+BTX → Prestazione Botox (3 caratteri)
+BTXALL → Botox + Allergan (6 caratteri)
+2BTXALL → Botox + Allergan esente IVA (7 caratteri, ignora il 2)
+LSRFRX → Laser + Fraxel (prestazione + macchinario)
+
+REGOLE DI COMPOSIZIONE
+1️⃣ PRESTAZIONE CON PRODOTTI
+Genera SEMPRE almeno 2 voci in fattura:
+Voce 1: [PPP]       "Botox viso"              €350.00
+Voce 2: [PPPMMM]    "BOTOX VISO - ALLERGAN"   €0.00    2 fiale
+⚠️ ANCHE CON UN SOLO PRODOTTO, sempre 2 voci separate
+2️⃣ PRESTAZIONE CON MACCHINARIO
+Genera SEMPRE una voce UNICA composta:
+Voce 1: [PPPMMM]    "Laser CO2 frazionato"   €450.00
+❌ MAI separare prestazione e macchinario
+3️⃣ PRESTAZIONE SEMPLICE
+Una sola voce con codice prestazione:
+Voce 1: [PPP]       "Consulenza estetica"     €150.00
+VINCOLI ASSOLUTI
+
+Prodotto/Macchinario MAI da soli
+
+❌ ALL → Non valido
+✅ BTXALL → Valido
+
+
+Prestazione dipendente = Codice composto
+
+Se richiede macchinario → SEMPRE 6 caratteri
+Se richiede prodotto → Prima prestazione (3), poi prestazione+prodotto (6)
+
+
+Combinazioni valide
+
+Solo quelle specificate nel JSON di configurazione
+Es: BTX può combinarsi con ALL, XEO, DYS
+Es: LSR può combinarsi con FRX, CO2
+
+
+UNICITÀ ASSOLUTA
+
+Tutti i codici singoli (3 caratteri) devono essere unici tra loro
+Tutte le combinazioni (6 caratteri) devono essere uniche
+Non possono esistere duplicati nel sistema
+
+
+
+ESEMPI FATTURA COMPLETI
+Multi-prodotto:
+[BTX]    Botox viso                     €500.00
+[BTXALL] BOTOX VISO - ALLERGAN 2 fiale  €0.00
+[BTXXEO] BOTOX VISO - XEOMIN 1 fiala    €0.00
+Con macchinario:
+[LSRCO2] Laser CO2 frazionato viso      €600.00
+Mista:
+[CNS]    Consulenza estetica            €150.00
+[BTX]    Botox viso                     €350.00
+[BTXALL] BOTOX VISO - ALLERGAN 3 fiale  €0.00
+[LSRFRX] Laser Fraxel cicatrici         €400.00
+IDENTIFICAZIONE TIPO VOCE
+javascriptfunction parseVoce(codice) {
+  // Rimuovi eventuale cifra IVA iniziale
+  const codiceUtile = codice.replace(/^\d/, '');
+  
+  if (codiceUtile.length === 3) {
+    return { tipo: 'prestazione', prestazione: codiceUtile };
+  }
+  
+  if (codiceUtile.length === 6) {
+    const prestazione = codiceUtile.substring(0, 3);
+    const accessorio = codiceUtile.substring(3, 6);
+    
+    // Determina se prodotto o macchinario dal contesto
+    return { 
+      tipo: 'composto',
+      prestazione,
+      accessorio,
+      tipoAccessorio: determinaTipo(prestazione, accessorio)
+    };
+  }
+}
+GESTIONE ANOMALIA "CODICE SCONOSCIUTO"
+Quando Import Fatture rileva un codice non riconosciuto:
+1️⃣ VALIDAZIONE FORMATO E CONTESTO
+javascriptfunction validaCodice(codice, vociStessaFattura) {
+  // Rimuovi eventuale cifra IVA
+  const codiceUtile = codice.replace(/^\d/, '');
+  
+  // Controlla lunghezza
+  if (codiceUtile.length !== 3 && codiceUtile.length !== 6) {
+    return { 
+      valido: false, 
+      errore: 'Il codice deve essere di 3 o 6 caratteri (esclusa cifra IVA)' 
+    };
+  }
+  
+  // Controlla formato caratteri
+  if (!/^[A-Z]{3,6}$/.test(codiceUtile)) {
+    return { 
+      valido: false, 
+      errore: 'Il codice deve contenere solo lettere maiuscole' 
+    };
+  }
+  
+  // Se 6 caratteri, verifica struttura e contesto
+  if (codiceUtile.length === 6) {
+    const prestazione = codiceUtile.substring(0, 3);
+    const accessorio = codiceUtile.substring(3, 6);
+    
+    // Verifica che non sia un prodotto/macchinario da solo
+    const config = configPrestazioni[prestazione];
+    
+    if (!config) {
+      return { 
+        valido: false, 
+        errore: `Prestazione "${prestazione}" non riconosciuta. Un codice prodotto/macchinario non può esistere da solo.` 
+      };
+    }
+    
+    // VALIDAZIONE CRITICA: Verifica dipendenze
+    if (config.richiedeProdotti) {
+      // Deve esistere la voce prestazione principale nella fattura
+      const hasPrestazionePrincipale = vociStessaFattura.some(v => 
+        v.codice.replace(/^\d/, '') === prestazione
+      );
+      
+      if (!hasPrestazionePrincipale) {
+        return {
+          valido: false,
+          errore: `Questo codice prodotto richiede la presenza della prestazione principale "${prestazione}" nella fattura. Aggiungi prima la prestazione o correggi il codice.`
+        };
+      }
+    }
+    
+    if (config.richiedeMacchinario) {
+      return {
+        valido: false,
+        errore: `"${prestazione}" richiede macchinario. Il codice deve essere sempre composto (es: ${prestazione}${config.macchinariValidi[0]}). Non può esistere da solo.`
+      };
+    }
+  }
+  
+  // Se 3 caratteri, verifica che non sia un codice che richiede sempre macchinario
+  if (codiceUtile.length === 3) {
+    const config = configPrestazioni[codiceUtile];
+    
+    if (config && config.richiedeMacchinario) {
+      return {
+        valido: false,
+        errore: `"${codiceUtile}" richiede sempre un macchinario. Usa il codice composto (es: ${codiceUtile}${config.macchinariValidi[0]})`
+      };
+    }
+  }
+  
+  return { valido: true };
+}
+2️⃣ UI CORREZIONE CODICE AVANZATA
+⚠️ Codice sconosciuto: "ALLJUV"
+
+[Input: ALLJUV] ← Modificabile
+
+❌ Codice prodotto non può esistere da solo!
+   "ALL" e "JUV" sono codici prodotto che devono essere preceduti
+   da una prestazione (es: BTXALL o FLLJUV)
+
+📋 Codici validi nella fattura:
+- BTX (Botox viso)
+- FLL (Filler labbra)
+
+💡 Suggerimenti:
+- Se è Allergan per Botox → BTXALL
+- Se è Juvederm per Filler → FLLJUV
+- Se è una prestazione nuova → usa 3 caratteri
+
+[Annulla] [Conferma correzione]
+3️⃣ FLUSSO CORREZIONE CON VALIDAZIONE CONTESTO
+javascriptfunction handleCodiceCorretto(voceId, nuovoCodice, fattura) {
+  // Ottieni tutte le voci della stessa fattura
+  const vociStessaFattura = fattura.voci.filter(v => v.id !== voceId);
+  
+  // Valida con contesto
+  const validazione = validaCodice(nuovoCodice, vociStessaFattura);
+  
+  if (!validazione.valido) {
+    showError(validazione.errore);
+    return;
+  }
+  
+  const codiceUtile = nuovoCodice.replace(/^\d/, '');
+  
+  // Controlla coerenza con resto fattura
+  if (codiceUtile.length === 3) {
+    // È una prestazione - OK se non esiste già
+    const esisteGia = vociStessaFattura.some(v => 
+      v.codice.replace(/^\d/, '') === codiceUtile
+    );
+    
+    if (esisteGia) {
+      showError(`Prestazione "${codiceUtile}" già presente nella fattura`);
+      return;
+    }
+  }
+  
+  // Applica correzione solo se tutto OK
+  updateVoceCodice(voceId, nuovoCodice);
+}
+4️⃣ ESEMPI VALIDAZIONE
+❌ Non accettati:
+"ALL"     → Errore: Codice prodotto non può esistere da solo
+"XEO"     → Errore: Codice prodotto non può esistere da solo  
+"FRX"     → Errore: Codice macchinario non può esistere da solo
+"LSR"     → Errore: LSR richiede sempre macchinario (es: LSRCO2)
+"BTXJUV"  → Errore: Combinazione non valida (Juvederm non per Botox)
+✅ Accettati (se coerenti con fattura):
+"BTX"     → OK se non esiste già nella fattura
+"BTXALL"  → OK se esiste BTX nella fattura
+"LSRCO2"  → OK sempre (prestazione+macchinario)
+"CNS"     → OK sempre (prestazione semplice)
+SISTEMA VERIFICA CODICI IN DASHBOARD
+La dashboard include un sistema automatico di verifica della correttezza dei codici presenti in Fatture in Cloud:
+1️⃣ VERIFICA AUTOMATICA
+javascript// Eseguita al login e schedulata ogni ora
+async function verificaCodiciSistema() {
+  // 1. Recupera tutti i codici da Fatture in Cloud
+  const codiciRemoti = await api.getCodiciFromFattureInCloud();
+  
+  // 2. Verifica unicità
+  const duplicati = trovaDuplicati(codiciRemoti);
+  
+  // 3. Verifica formato e regole
+  const errori = [];
+  
+  codiciRemoti.forEach(item => {
+    const codice = item.codice.replace(/^\d/, '');
+    
+    // Verifica formato base
+    if (codice.length !== 3 && codice.length !== 6) {
+      errori.push({
+        codice: item.codice,
+        descrizione: item.descrizione,
+        errore: 'Lunghezza non valida',
+        tipo: 'formato'
+      });
+    }
+    
+    // Verifica unicità
+    if (duplicati.includes(codice)) {
+      errori.push({
+        codice: item.codice,
+        descrizione: item.descrizione,
+        errore: 'Codice duplicato nel sistema',
+        tipo: 'duplicato'
+      });
+    }
+    
+    // Verifica regole business
+    if (codice.length === 6) {
+      const prestazione = codice.substring(0, 3);
+      const accessorio = codice.substring(3, 6);
+      
+      if (!configPrestazioni[prestazione]) {
+        errori.push({
+          codice: item.codice,
+          descrizione: item.descrizione,
+          errore: `Prestazione base "${prestazione}" non esiste`,
+          tipo: 'orfano'
+        });
+      }
+    }
+  });
+  
+  return errori;
+}
+2️⃣ UI DASHBOARD - WIDGET VERIFICA CODICI
+┌─────────────────────────────────────────────────────────┐
+│ 🔍 Verifica Codici Sistema                              │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│ ⚠️ Trovati 5 codici con anomalie in Fatture in Cloud   │
+│                                                         │
+│ • ALL     - "Allergan"          → Prodotto da solo     │
+│ • BTXBTX  - "Botox duplicato"   → Codice duplicato     │
+│ • XXXYYY  - "Trattamento XYZ"   → Formato non valido   │
+│ • FLLABC  - "Filler ABC"        → Combinazione invalida│
+│ • 12BTX   - "Botox esente"      → Formato cifra errato │
+│                                                         │
+│ [Visualizza dettagli] [Correggi in Fatture in Cloud]   │
+└─────────────────────────────────────────────────────────┘
+3️⃣ MODAL CORREZIONE IN-APP
+javascriptfunction ModalCorrezioneCodice({ codiceErrato, onSave }) {
+  const [nuovoCodice, setNuovoCodice] = useState(codiceErrato.codice);
+  const [validazione, setValidazione] = useState({ valido: true });
+  
+  // Validazione real-time
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const result = validaCodiceCompleto(nuovoCodice);
+      setValidazione(result);
+    }, 300);
+    
+    return () => clearTimeout(timer);
+  }, [nuovoCodice]);
+  
+  return (
+    <Modal>
+      <h3>Correzione Codice Fatture in Cloud</h3>
+      
+      <div className="mb-4">
+        <label>Codice attuale (errato):</label>
+        <div className="text-red-600 font-mono">{codiceErrato.codice}</div>
+        <div className="text-sm text-gray-600">{codiceErrato.descrizione}</div>
+        <div className="text-sm text-red-500">❌ {codiceErrato.errore}</div>
+      </div>
+      
+      <div className="mb-4">
+        <label>Nuovo codice:</label>
+        <input
+          value={nuovoCodice}
+          onChange={(e) => setNuovoCodice(e.target.value.toUpperCase())}
+          className={validazione.valido ? 'border-green-500' : 'border-red-500'}
+        />
+        
+        {!validazione.valido && (
+          <div className="text-red-500 text-sm mt-1">
+            {validazione.errore}
+          </div>
+        )}
+        
+        {validazione.valido && nuovoCodice !== codiceErrato.codice && (
+          <div className="text-green-500 text-sm mt-1">
+            ✅ Codice valido e univoco
+          </div>
+        )}
+      </div>
+      
+      <div className="bg-blue-50 p-3 rounded text-sm">
+        <strong>Nota:</strong> La modifica verrà applicata in Fatture in Cloud.
+        Tutte le fatture future useranno il nuovo codice.
+      </div>
+      
+      <div className="flex gap-2 mt-4">
+        <button 
+          onClick={() => onSave(nuovoCodice)}
+          disabled={!validazione.valido || nuovoCodice === codiceErrato.codice}
+          className="bg-green-500 text-white px-4 py-2 rounded"
+        >
+          Salva in Fatture in Cloud
+        </button>
+        <button 
+          onClick={onClose}
+          className="bg-gray-300 px-4 py-2 rounded"
+        >
+          Annulla
+        </button>
+      </div>
+    </Modal>
+  );
+}
+4️⃣ VALIDAZIONE COMPLETA CON UNICITÀ
+javascriptfunction validaCodiceCompleto(codice, codiceOriginale = null) {
+  const codiceUtile = codice.replace(/^\d/, '');
+  
+  // Validazioni base (formato, lunghezza, etc.)
+  const validazioneBase = validaCodice(codice, []);
+  if (!validazioneBase.valido) return validazioneBase;
+  
+  // VERIFICA UNICITÀ
+  // Recupera tutti i codici esistenti
+  const codiciEsistenti = getAllCodiciSistema();
+  
+  // Rimuovi il codice originale se stiamo modificando
+  const codiciDaVerificare = codiceOriginale 
+    ? codiciEsistenti.filter(c => c !== codiceOriginale)
+    : codiciEsistenti;
+  
+  // Controlla duplicati
+  if (codiciDaVerificare.includes(codiceUtile)) {
+    return {
+      valido: false,
+      errore: `Il codice "${codiceUtile}" esiste già nel sistema`
+    };
+  }
+  
+  // Se è un codice composto, verifica che la combinazione sia valida
+  if (codiceUtile.length === 6) {
+    const prestazione = codiceUtile.substring(0, 3);
+    const accessorio = codiceUtile.substring(3, 6);
+    
+    const combinazioniValide = configPrestazioni[prestazione]?.combinazioniValide || [];
+    
+    if (!combinazioniValide.includes(accessorio)) {
+      return {
+        valido: false,
+        errore: `Combinazione non valida: "${prestazione}" non può essere usato con "${accessorio}"`
+      };
+    }
+  }
+  
+  return { valido: true };
+}
+5️⃣ NOTIFICHE E MONITORAGGIO
+javascript// Notifica automatica se ci sono problemi
+function checkAndNotify() {
+  const errori = await verificaCodiciSistema();
+  
+  if (errori.length > 0) {
+    // Mostra notifica in dashboard
+    showNotification({
+      type: 'warning',
+      title: 'Codici non conformi rilevati',
+      message: `${errori.length} codici in Fatture in Cloud necessitano correzione`,
+      action: {
+        label: 'Correggi ora',
+        onClick: () => openCorrezioneCodici()
+      }
+    });
+    
+    // Invia email all'admin
+    if (errori.some(e => e.tipo === 'duplicato')) {
+      sendAdminAlert('Rilevati codici duplicati nel sistema!');
+    }
+  }
+}
+
+// Esegui al login e ogni ora
+onLogin(() => checkAndNotify());
+setInterval(() => checkAndNotify(), 60 * 60 * 1000);

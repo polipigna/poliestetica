@@ -1,0 +1,28 @@
+{
+  "utenti": [
+    {
+      "id": 1,
+      "username": "admin",
+      "password": "admin123",
+      "nome": "Elio Pignatelli",
+      "ruolo": "admin",
+      "email": "elio@poliestetica.com"
+    },
+    {
+      "id": 2,
+      "username": "segreteria",
+      "password": "segr123",
+      "nome": "Maria Bianchi",
+      "ruolo": "segretaria",
+      "email": "segreteria@poliestetica.com"
+    },
+    {
+      "id": 3,
+      "username": "responsabile",
+      "password": "resp123",
+      "nome": "Laura Verdi",
+      "ruolo": "responsabile",
+      "email": "responsabile@poliestetica.com"
+    }
+  ]
+}

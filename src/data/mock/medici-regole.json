@@ -1,0 +1,300 @@
+{
+  "1": {
+    "medicoId": 1,
+    "nome": "Dott.ssa Maria Scutari",
+    "regolaBase": {
+      "tipo": "percentuale",
+      "valore": 50,
+      "calcolaSu": "netto",
+      "detraiCosti": true
+    },
+    "eccezioni": [
+      {
+        "codice": "BTX",
+        "tipo": "percentuale",
+        "valore": 60,
+        "calcolaSu": "netto",
+        "detraiCosti": true
+      },
+      {
+        "codice": "FLL",
+        "tipo": "fisso",
+        "valore": 200,
+        "calcolaSu": "netto",
+        "detraiCosti": false
+      }
+    ],
+    "costiProdotti": {
+      "VEX": 0.85,
+      "BCO": 0.80,
+      "AZZ": 0.82,
+      "AFL": 55,
+      "ALV": 55,
+      "JU3": 70,
+      "JSM": 85,
+      "SLF": 85,
+      "AGP": 60,
+      "ASR": 85,
+      "HYX": 65,
+      "V16": 65,
+      "V20": 65,
+      "PRP": 15,
+      "NEX": 50,
+      "JCP": 70,
+      "RDF": 90,
+      "RSR": 90
+    }
+  },
+  "2": {
+    "medicoId": 2,
+    "nome": "Dott. Marco Rossi",
+    "regolaBase": {
+      "tipo": "scaglioni",
+      "valoreX": 30,
+      "valoreY": 100,
+      "calcolaSu": "lordo",
+      "detraiCosti": true
+    },
+    "eccezioni": [
+      {
+        "codice": "3TOX",
+        "tipo": "percentuale",
+        "valore": 55,
+        "calcolaSu": "lordo",
+        "detraiCosti": true
+      }
+    ],
+    "costiProdotti": {
+      "VEX": 0.90,
+      "BCO": 0.90,
+      "AZZ": 0.90,
+      "AFL": 50,
+      "ALV": 50,
+      "JU3": 65,
+      "JSM": 80,
+      "SLF": 80,
+      "AGP": 56,
+      "ASR": 78,
+      "HYX": 60,
+      "V16": 60,
+      "V20": 60,
+      "PRP": 10,
+      "NEX": 45,
+      "JCP": 66,
+      "RDF": 85,
+      "RSR": 85
+    }
+  },
+  "3": {
+    "medicoId": 3,
+    "nome": "Dott.ssa Laura Bianchi",
+    "regolaBase": {
+      "tipo": "percentuale",
+      "valore": 45,
+      "calcolaSu": "netto",
+      "detraiCosti": false
+    },
+    "eccezioni": [
+      {
+        "codice": "BSV",
+        "tipo": "percentuale",
+        "valore": 50,
+        "calcolaSu": "netto",
+        "detraiCosti": true
+      },
+      {
+        "codice": "BSC",
+        "tipo": "percentuale",
+        "valore": 50,
+        "calcolaSu": "netto",
+        "detraiCosti": true
+      }
+    ],
+    "costiProdotti": {
+      "VEX": 0.95,
+      "BCO": 0.95,
+      "AZZ": 0.95,
+      "AFL": 60,
+      "ALV": 60,
+      "JU3": 75,
+      "JSM": 90,
+      "SLF": 90,
+      "AGP": 65,
+      "ASR": 90,
+      "HYX": 70,
+      "V16": 70,
+      "V20": 70,
+      "PRP": 20,
+      "NEX": 55,
+      "JCP": 75,
+      "RDF": 95,
+      "RSR": 95
+    }
+  },
+  "4": {
+    "medicoId": 4,
+    "nome": "Dott. Giuseppe Verdi",
+    "regolaBase": {
+      "tipo": "quota_fissa",
+      "valoreX": 100,
+      "valoreY": 3,
+      "calcolaSu": "netto",
+      "detraiCosti": true
+    },
+    "eccezioni": [],
+    "costiProdotti": {
+      "VEX": 0.75,
+      "BCO": 0.75,
+      "AZZ": 0.75,
+      "AFL": 52,
+      "ALV": 52,
+      "JU3": 68,
+      "JSM": 82,
+      "SLF": 82
+    }
+  },
+  "5": {
+    "medicoId": 5,
+    "nome": "Dott.ssa Anna Ferrari",
+    "regolaBase": {
+      "tipo": "percentuale",
+      "valore": 55,
+      "calcolaSu": "lordo",
+      "detraiCosti": true
+    },
+    "eccezioni": [
+      {
+        "codice": "FLL",
+        "tipo": "scaglioni",
+        "valoreX": 50,
+        "valoreY": 150,
+        "calcolaSu": "lordo",
+        "detraiCosti": true
+      }
+    ],
+    "costiProdotti": {
+      "VEX": 0.70,
+      "BCO": 0.67,
+      "AZZ": 0.70
+    }
+  },
+  "6": {
+    "medicoId": 6,
+    "nome": "Dott. Paolo Romano",
+    "regolaBase": {
+      "tipo": "percentuale",
+      "valore": 50,
+      "calcolaSu": "netto",
+      "detraiCosti": true
+    },
+    "eccezioni": [],
+    "costiProdotti": {}
+  },
+  "7": {
+    "medicoId": 7,
+    "nome": "Dott.ssa Francesca Colombo",
+    "regolaBase": {
+      "tipo": "percentuale",
+      "valore": 48,
+      "calcolaSu": "netto",
+      "detraiCosti": true
+    },
+    "eccezioni": [
+      {
+        "codice": "1TOX",
+        "tipo": "fisso",
+        "valore": 150,
+        "calcolaSu": "netto",
+        "detraiCosti": false
+      },
+      {
+        "codice": "2TOX",
+        "tipo": "fisso",
+        "valore": 180,
+        "calcolaSu": "netto",
+        "detraiCosti": false
+      }
+    ],
+    "costiProdotti": {
+      "VEX": 0.80,
+      "BCO": 0.75,
+      "AZZ": 0.78,
+      "AFL": 53,
+      "ALV": 53,
+      "JU3": 67,
+      "JSM": 83,
+      "SLF": 83,
+      "AGP": 58,
+      "ASR": 82,
+      "HYX": 63,
+      "V16": 63,
+      "V20": 63,
+      "PRP": 13,
+      "NEX": 48,
+      "JCP": 68,
+      "RDF": 88,
+      "RSR": 88
+    }
+  },
+  "8": {
+    "medicoId": 8,
+    "nome": "Dott. Roberto Gallo",
+    "regolaBase": {
+      "tipo": "scaglioni",
+      "valoreX": 40,
+      "valoreY": 120,
+      "calcolaSu": "lordo",
+      "detraiCosti": false
+    },
+    "eccezioni": [],
+    "costiProdotti": {
+      "VEX": 0.85,
+      "BCO": 0.80,
+      "AZZ": 0.82
+    }
+  },
+  "9": {
+    "medicoId": 9,
+    "nome": "Dott.ssa Giulia Conti",
+    "regolaBase": {
+      "tipo": "percentuale",
+      "valore": 52,
+      "calcolaSu": "netto",
+      "detraiCosti": true
+    },
+    "eccezioni": [
+      {
+        "codice": "RLL",
+        "tipo": "percentuale",
+        "valore": 60,
+        "calcolaSu": "netto",
+        "detraiCosti": true
+      }
+    ],
+    "costiProdotti": {
+      "VEX": 1.00,
+      "BCO": 1.00,
+      "AZZ": 1.00,
+      "JU3": 66,
+      "JSM": 81,
+      "SLF": 81,
+      "AGP": 56,
+      "ASR": 79,
+      "JCP": 67,
+      "RDF": 86,
+      "RSR": 86
+    }
+  },
+  "10": {
+    "medicoId": 10,
+    "nome": "Dott. Stefano Marino",
+    "regolaBase": {
+      "tipo": "percentuale",
+      "valore": 50,
+      "calcolaSu": "lordo",
+      "detraiCosti": true
+    },
+    "eccezioni": [],
+    "costiProdotti": {}
+  }
+}
