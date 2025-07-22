@@ -19,94 +19,164 @@ import {
   RefreshCw,
   Loader2
 } from 'lucide-react';
+import type { Fattura, Medico, MedicoRegoleCosti } from '@/data/mock';
+import { getCostoProdotto, calcolaCompenso, calcolaCostiProdotti } from '@/data/mock';
 
-export default function CalcolaCompensi() {
+interface CalcolaCompensiProps {
+  fatture: Fattura[];
+  medici: Medico[];
+  regoleCosti: { [key: string]: MedicoRegoleCosti };
+  meseSelezionato: string; // formato "YYYY-MM"
+  statiChiusura?: { [medicoId: string]: boolean };
+  meseChiuso?: boolean;
+  onSaveCompenso?: (fatturaId: number, compenso: number) => void;
+  onChiudiMedico?: (medicoId: number) => void;
+  onChiudiMese?: () => void;
+  isLoading?: boolean;
+}
+
+export default function CalcolaCompensi({
+  fatture,
+  medici,
+  regoleCosti,
+  meseSelezionato,
+  statiChiusura = {},
+  meseChiuso = false,
+  onSaveCompenso,
+  onChiudiMedico,
+  onChiudiMese,
+  isLoading = false
+}: CalcolaCompensiProps) {
+  // Filtra solo fatture importate o verificate
+  const fattureValide = fatture.filter(f => 
+    f.stato === 'importata' || f.stato === 'verificata'
+  );
+
+  // Se non ci sono fatture valide, mostra messaggio
+  if (fattureValide.length === 0) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <p className="text-gray-500 mb-4">
+            Nessuna fattura importata per il periodo selezionato.
+          </p>
+          <p className="text-sm text-gray-400">
+            Vai su Import Fatture per importare.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // Stati principali
   const [userRole, setUserRole] = useState('admin');
   const [activeTab, setActiveTab] = useState('riepilogo');
-  const [meseCorrente, setMeseCorrente] = useState({ mese: 'Dicembre 2024', stato: 'aperto' });
-  const [selectedMedico, setSelectedMedico] = useState(null);
+  const [selectedMedico, setSelectedMedico] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [showChiusuraMedico, setShowChiusuraMedico] = useState(null);
+  const [showChiusuraMedico, setShowChiusuraMedico] = useState<number | null>(null);
   const [showChiusuraMese, setShowChiusuraMese] = useState(false);
-  const [showModificaCompenso, setShowModificaCompenso] = useState(null);
-  const [showMappaProdotto, setShowMappaProdotto] = useState(null);
-  const [checklistMedico, setChecklistMedico] = useState({});
-  const [fattureAggiornate, setFattureAggiornate] = useState({}); // Memorizza fatture aggiornate per medico
-  const [isVerificandoFatture, setIsVerificandoFatture] = useState(false); // Stato loading verifica
+  const [showModificaCompenso, setShowModificaCompenso] = useState<number | null>(null);
+  const [showMappaProdotto, setShowMappaProdotto] = useState<number | null>(null);
+  const [checklistMedico, setChecklistMedico] = useState<{[key: number]: any}>({});
+  const [fattureAggiornate, setFattureAggiornate] = useState<{[key: number]: any}>({});
+  const [isVerificandoFatture, setIsVerificandoFatture] = useState(false);
   const [compensoModificato, setCompensoModificato] = useState('');
   const [errorCompenso, setErrorCompenso] = useState('');
   const [showSuccessMapping, setShowSuccessMapping] = useState(false);
-  const [filtroTipoFattura, setFiltroTipoFattura] = useState('generale'); // 'generale', 'conIVA', 'senzaIVA'
+  const [filtroTipoFattura, setFiltroTipoFattura] = useState('generale');
   const itemsPerPage = 50;
+  
+  // Estrai mese e anno da meseSelezionato
+  const [anno, mese] = meseSelezionato.split('-');
+  const meseNome = new Date(parseInt(anno), parseInt(mese) - 1).toLocaleString('it-IT', { month: 'long', year: 'numeric' });
+  const meseCorrente = { mese: meseNome, stato: meseChiuso ? 'chiuso' : 'aperto' };
 
-  // Dati medici con stato chiusura
-  const [medici, setMedici] = useState([
-    {
-      id: 1,
-      nome: 'Maria',
-      cognome: 'Scutari',
-      stato: 'aperto',
-      checklistCompleta: false,
-      dataChiusura: null
-    },
-    {
-      id: 2,
-      nome: 'Marco',
-      cognome: 'Rossi',
-      stato: 'aperto',
-      checklistCompleta: false,
-      dataChiusura: null
-    },
-    {
-      id: 3,
-      nome: 'Laura',
-      cognome: 'Bianchi',
-      stato: 'chiuso',
-      checklistCompleta: true,
-      dataChiusura: '23/12/2024 15:30'
+  // Stati medici con chiusura
+  const [mediciStati, setMediciStati] = useState<{[key: number]: { stato: string; checklistCompleta: boolean; dataChiusura: string | null }}>(
+    medici.reduce((acc, m) => ({
+      ...acc,
+      [m.id]: {
+        stato: statiChiusura[m.id] ? 'chiuso' : 'aperto',
+        checklistCompleta: statiChiusura[m.id] || false,
+        dataChiusura: null
+      }
+    }), {})
+  );
+
+  // Processa le fatture valide e calcola i compensi
+  const [vociFatture, setVociFatture] = useState(() => {
+    return fattureValide.map(f => {
+      const compensoCalcolato = calcolaCompenso(f, regoleCosti);
+      const costiProdotti = calcolaCostiProdotti(f, regoleCosti);
+      
+      return {
+        id: f.id,
+        medico: f.medicoId,
+        numeroFattura: f.numero,
+        dataFattura: f.data,
+        paziente: f.paziente,
+        prestazione: f.prestazione,
+        prodotto: f.prodotti?.length > 0 ? f.prodotti[0].nome : null,
+        quantita: f.prodotti?.length > 0 ? f.prodotti[0].quantita : 0,
+        unita: f.prodotti?.length > 0 ? f.prodotti[0].unitaMisura : '',
+        importoLordo: f.importo,
+        importoNetto: f.imponibile,
+        costoProdotto: costiProdotti,
+        compensoCalcolato: compensoCalcolato,
+        compensoFinale: compensoCalcolato,
+        regolaApplicata: getRegolaApplicataDescrizione(f, regoleCosti),
+        modificatoDa: null,
+        tipoFattura: f.conRitenutaAcconto ? 'senzaIVA' : 'conIVA'
+      };
+    });
+  });
+
+  // Fatture con anomalie (prodotti non mappati)
+  const anomalie = fattureValide.filter(f => 
+    f.prodotti?.some(p => !getCostoProdotto(f.medicoId, p.nome, regoleCosti))
+  ).map(f => ({
+    id: f.id,
+    medico: f.medicoId,
+    numeroFattura: f.numero,
+    dataFattura: f.data,
+    paziente: f.paziente,
+    prestazione: f.prestazione,
+    prodotto: f.prodotti?.find(p => !getCostoProdotto(f.medicoId, p.nome, regoleCosti))?.nome || '',
+    quantita: f.prodotti?.find(p => !getCostoProdotto(f.medicoId, p.nome, regoleCosti))?.quantita || 0,
+    unita: f.prodotti?.find(p => !getCostoProdotto(f.medicoId, p.nome, regoleCosti))?.unitaMisura || '',
+    importoLordo: f.importo,
+    tipoFattura: f.conRitenutaAcconto ? 'senzaIVA' : 'conIVA'
+  }));
+  
+  const [anomalieState, setAnomalieState] = useState(anomalie);
+
+  // Helper per ottenere descrizione regola applicata
+  function getRegolaApplicataDescrizione(fattura: Fattura, regole: { [key: string]: MedicoRegoleCosti }): string {
+    const regoleMedico = regole[fattura.medicoId.toString()];
+    if (!regoleMedico) return 'Regole non configurate';
+    
+    // Cerca eccezioni
+    const eccezione = regoleMedico.eccezioni?.find(e => 
+      e.prestazione === fattura.prestazione && 
+      (!e.prodotto || fattura.prodotti?.some(p => p.nome === e.prodotto))
+    );
+    
+    if (eccezione) {
+      return `Eccezione: ${eccezione.tipo === 'percentuale' ? eccezione.valore + '%' : '€' + eccezione.valore} su ${eccezione.calcolaSu || 'netto'}`;
     }
-  ]);
-
-  // Voci fattura di esempio con distinzione IVA
-  const [vociFatture, setVociFatture] = useState([
-    // Dott.ssa Scutari - Fatture CON IVA
-    { id: 1, medico: 1, numeroFattura: 'FT/2024/1251IVA', dataFattura: '20/12/2024', paziente: 'Mario Rossi', prestazione: 'Botox Viso', prodotto: 'Allergan', quantita: 1, unita: 'fiala', importoLordo: 350, importoNetto: 286.89, costoProdotto: 120, compensoCalcolato: 83.45, compensoFinale: 83.45, regolaApplicata: '50% su netto - costo', modificatoDa: null, tipoFattura: 'conIVA' },
-    { id: 2, medico: 1, numeroFattura: 'FT/2024/1252IVA', dataFattura: '20/12/2024', paziente: 'Laura Verdi', prestazione: 'Filler Labbra', prodotto: 'Juvederm', quantita: 2, unita: 'ml', importoLordo: 500, importoNetto: 409.84, costoProdotto: 160, compensoCalcolato: 124.92, compensoFinale: 130.00, regolaApplicata: '50% su netto - costo', modificatoDa: 'admin', tipoFattura: 'conIVA' },
-    { id: 11, medico: 1, numeroFattura: 'FT/2024/1253IVA', dataFattura: '21/12/2024', paziente: 'Lucia Bianchi', prestazione: 'Biorivitalizzazione', prodotto: 'Restylane', quantita: 3, unita: 'ml', importoLordo: 600, importoNetto: 491.80, costoProdotto: 180, compensoCalcolato: 155.90, compensoFinale: 155.90, regolaApplicata: '50% su netto - costo', modificatoDa: null, tipoFattura: 'conIVA' },
-    // Dott.ssa Scutari - Fatture SENZA IVA
-    { id: 3, medico: 1, numeroFattura: 'FT/2024/1254', dataFattura: '21/12/2024', paziente: 'Giuseppe Neri', prestazione: 'Infiltrazione Terapeutica', prodotto: 'Allergan', quantita: 2, unita: 'fiala', importoLordo: 350, importoNetto: 350, costoProdotto: 240, compensoCalcolato: 55, compensoFinale: 55, regolaApplicata: '50% su netto - costo', modificatoDa: null, tipoFattura: 'senzaIVA' },
-    { id: 4, medico: 1, numeroFattura: 'FT/2024/1255', dataFattura: '21/12/2024', paziente: 'Anna Rossi', prestazione: 'Visita Medica', prodotto: null, quantita: 1, unita: 'seduta', importoLordo: 200, importoNetto: 200, costoProdotto: 0, compensoCalcolato: 100, compensoFinale: 100, regolaApplicata: '50% su netto', modificatoDa: null, tipoFattura: 'senzaIVA' },
-    { id: 12, medico: 1, numeroFattura: 'FT/2024/1256', dataFattura: '22/12/2024', paziente: 'Marco Verdi', prestazione: 'Mesoterapia Medica', prodotto: 'Restylane', quantita: 2, unita: 'ml', importoLordo: 280, importoNetto: 280, costoProdotto: 160, compensoCalcolato: 60, compensoFinale: 60, regolaApplicata: '50% su netto - costo', modificatoDa: null, tipoFattura: 'senzaIVA' },
     
-    // Dott. Rossi - Fatture CON IVA
-    { id: 5, medico: 2, numeroFattura: 'FT/2024/1255IVA', dataFattura: '21/12/2024', paziente: 'Anna Blu', prestazione: 'Botox Fronte', prodotto: 'Allergan', quantita: 1, unita: 'fiala', importoLordo: 300, importoNetto: 245.90, costoProdotto: 110, compensoCalcolato: 61.48, compensoFinale: 61.48, regolaApplicata: '€50 ogni €200 netto', modificatoDa: null, tipoFattura: 'conIVA' },
-    { id: 6, medico: 2, numeroFattura: 'FT/2024/1256IVA', dataFattura: '21/12/2024', paziente: 'Carlo Rossi', prestazione: 'Filler Zigomi', prodotto: 'Juvederm', quantita: 3, unita: 'ml', importoLordo: 800, importoNetto: 655.74, costoProdotto: 0, compensoCalcolato: 196.72, compensoFinale: 196.72, regolaApplicata: 'Eccezione: 60% su netto', modificatoDa: null, tipoFattura: 'conIVA' },
-    // Dott. Rossi - Fatture SENZA IVA
-    { id: 7, medico: 2, numeroFattura: 'FT/2024/1257', dataFattura: '22/12/2024', paziente: 'Maria Verdi', prestazione: 'Terapia Infiltrativa', prodotto: 'Juvederm', quantita: 2, unita: 'ml', importoLordo: 380, importoNetto: 380, costoProdotto: 170, compensoCalcolato: 105, compensoFinale: 105, regolaApplicata: '50% su netto - costo', modificatoDa: null, tipoFattura: 'senzaIVA' },
-    { id: 13, medico: 2, numeroFattura: 'FT/2024/1258', dataFattura: '22/12/2024', paziente: 'Luigi Bianchi', prestazione: 'Visita Specialistica', prodotto: null, quantita: 1, unita: 'seduta', importoLordo: 180, importoNetto: 180, costoProdotto: 0, compensoCalcolato: 54, compensoFinale: 54, regolaApplicata: '30% su netto', modificatoDa: null, tipoFattura: 'senzaIVA' },
+    // Regola base
+    const regola = regoleMedico.regolaBase;
+    if (regola.tipo === 'percentuale') {
+      return `${regola.valore}% su ${regola.calcolaSu}`;
+    } else if (regola.tipo === 'fisso') {
+      return `€${regola.valore} fisso`;
+    } else if (regola.tipo === 'scaglioni') {
+      return `€${regola.valoreX} ogni €${regola.valoreY} ${regola.calcolaSu}`;
+    }
     
-    // Dott.ssa Bianchi - Fatture CON IVA
-    { id: 8, medico: 3, numeroFattura: 'FT/2024/1259IVA', dataFattura: '22/12/2024', paziente: 'Roberto Viola', prestazione: 'Botox Completo', prodotto: 'Allergan', quantita: 2, unita: 'fiala', importoLordo: 700, importoNetto: 573.77, costoProdotto: 240, compensoCalcolato: 166.89, compensoFinale: 166.89, regolaApplicata: '50% su netto - costo', modificatoDa: null, tipoFattura: 'conIVA' },
-    { id: 9, medico: 3, numeroFattura: 'FT/2024/1260IVA', dataFattura: '23/12/2024', paziente: 'Silvia Rosa', prestazione: 'Filler Rughe', prodotto: 'Teosyal', quantita: 2, unita: 'ml', importoLordo: 550, importoNetto: 450.82, costoProdotto: 180, compensoCalcolato: 135.41, compensoFinale: 135.41, regolaApplicata: '50% su netto - costo', modificatoDa: null, tipoFattura: 'conIVA' },
-    // Dott.ssa Bianchi - Fatture SENZA IVA
-    { id: 10, medico: 3, numeroFattura: 'FT/2024/1261', dataFattura: '22/12/2024', paziente: 'Francesca Gialli', prestazione: 'Consulenza', prodotto: null, quantita: 1, unita: 'seduta', importoLordo: 150, importoNetto: 150, costoProdotto: 0, compensoCalcolato: 30, compensoFinale: 30, regolaApplicata: '€30 per prestazione', modificatoDa: null, tipoFattura: 'senzaIVA' },
-    { id: 14, medico: 3, numeroFattura: 'FT/2024/1262', dataFattura: '23/12/2024', paziente: 'Paolo Nero', prestazione: 'Infiltrazione Articolare', prodotto: 'Restylane', quantita: 3, unita: 'ml', importoLordo: 420, importoNetto: 420, costoProdotto: 240, compensoCalcolato: 90, compensoFinale: 90, regolaApplicata: '50% su netto - costo', modificatoDa: null, tipoFattura: 'senzaIVA' }
-  ]);
-
-  // Anomalie prodotti non mappati
-  const [anomalie, setAnomalie] = useState([
-    { id: 1, medico: 1, numeroFattura: 'FT/2024/1263IVA', dataFattura: '23/12/2024', paziente: 'Elena Marrone', prestazione: 'Filler Mento', prodotto: 'UltraFill', quantita: 2, unita: 'ml', importoLordo: 450, tipoFattura: 'conIVA' },
-    { id: 2, medico: 2, numeroFattura: 'FT/2024/1264', dataFattura: '23/12/2024', paziente: 'Davide Argento', prestazione: 'Mesoterapia Medica', prodotto: 'RevitaNew', quantita: 1, unita: 'fiala', importoLordo: 280, tipoFattura: 'senzaIVA' }
-  ]);
-
-  // Prodotti disponibili per mappatura
-  const prodottiDisponibili = [
-    { nome: 'Allergan', prezzoDefault: 120, unitaMisura: 'fiala' },
-    { nome: 'Juvederm', prezzoDefault: 85, unitaMisura: 'ml' },
-    { nome: 'Restylane', prezzoDefault: 95, unitaMisura: 'siringa' },
-    { nome: 'Teosyal', prezzoDefault: 90, unitaMisura: 'ml' }
-  ];
+    return 'Regola non configurata';
+  }
 
   // Calcola totali con useMemo per ottimizzare performance
   const totaliMedici = useMemo(() => {

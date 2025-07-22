@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Eye,
   Download,
@@ -8,114 +8,120 @@ import {
   X
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import type { Medico, MedicoRegoleCosti } from '@/data/mock';
+import { prestazioni, prodotti } from '@/data/mock';
+
+// Transform prestazioni to trattamentiDisponibili format
+const trattamentiDisponibili = prestazioni.map(p => ({
+  codice: p.codice,
+  nome: p.descrizione
+}));
+
+// Transform prodotti to prodottiDisponibili format
+const prodottiDisponibili = prodotti.map(p => ({
+  nome: p.codice,
+  unitaMisura: p.unita,
+  prezzoDefault: p.prezzoDefault
+}));
+
+// Props interface
+interface GestioneMediciProps {
+  mediciIniziali: Medico[];
+  regoleCosti: { [key: string]: MedicoRegoleCosti };
+}
+
+// Extended Medico interface for internal use
+interface MedicoExtended extends Medico {
+  specialita?: string;
+  email?: string;
+  telefono?: string;
+  codiceFiscale?: string;
+  partitaIva?: string;
+  iban?: string;
+  indirizzo?: string;
+  attivo?: boolean;
+  regolaBase?: any;
+  costiProdotti?: any[];
+  eccezioni?: any[];
+}
 
 // Gestione Medici Component
-const GestioneMedici = () => {
+const GestioneMedici: React.FC<GestioneMediciProps> = ({ 
+  mediciIniziali,
+  regoleCosti
+}) => {
   // Simulazione ruolo utente - in produzione verrebbe da auth/context
   const [userRole, setUserRole] = useState('admin'); // 'admin', 'segretaria', 'responsabile'
   const isAdmin = userRole === 'admin';
   
-  const [medici, setMedici] = useState([
-    {
-      id: 1,
-      nome: 'Maria',
-      cognome: 'Scutari',
-      specialita: 'Medicina Estetica',
-      email: 'maria.scutari@email.com',
-      telefono: '333 1234567',
-      codiceFiscale: 'SCTMRA80A41L736P',
-      partitaIva: '12345678901',
-      iban: 'IT60X0542811101000000123456',
-      indirizzo: 'Via Roma 123, Padova',
-      attivo: true,
-      regolaBase: {
-        tipo: 'percentuale',
-        valore: 50,
-        valoreX: 50,
-        valoreY: 200,
-        su: 'netto',
-        detraiCosto: true
-      },
-      costiProdotti: [
-        { id: 1, nome: 'Allergan', costo: 120, unitaMisura: 'fiala', nonDetrarre: false },
-        { id: 2, nome: 'Juvederm', costo: 80, unitaMisura: 'ml', nonDetrarre: false }
-      ],
-      eccezioni: []
-    },
-    {
-      id: 2,
-      nome: 'Marco',
-      cognome: 'Rossi',
-      specialita: 'Medicina Estetica',
-      email: 'marco.rossi@email.com',
-      telefono: '333 9876543',
-      codiceFiscale: 'RSSMRC75B15L219E',
-      partitaIva: '98765432109',
-      iban: 'IT60X0542811101000000654321',
-      indirizzo: 'Via Verdi 456, Padova',
-      attivo: true,
-      regolaBase: {
-        tipo: 'scaglioni',
-        valoreX: 50,
-        valoreY: 200,
-        su: 'netto',
-        detraiCosto: true
-      },
-      costiProdotti: [
-        { id: 3, nome: 'Allergan', costo: 110, unitaMisura: 'fiala', nonDetrarre: false },
-        { id: 4, nome: 'Restylane', costo: 0, unitaMisura: 'siringa', nonDetrarre: true }
-      ],
-      eccezioni: [
-        {
-          id: 1,
-          trattamento: 'Filler Zigomi',
-          prodotto: 'Juvederm',
+  // Trasforma i medici iniziali nel formato esteso
+  const [medici, setMedici] = useState<MedicoExtended[]>([]);
+  
+  useEffect(() => {
+    // Combina i dati dei medici con le loro regole costi
+    const mediciCompleti = mediciIniziali.map(m => {
+      const regole = regoleCosti[m.id.toString()];
+      const medicoEsteso: MedicoExtended = {
+        ...m,
+        specialita: 'Medicina Estetica',
+        email: `${m.nome.toLowerCase()}.${m.cognome.toLowerCase()}@email.com`,
+        telefono: '333 ' + Math.floor(Math.random() * 9000000 + 1000000),
+        codiceFiscale: m.cf,
+        partitaIva: m.piva,
+        iban: 'IT' + Math.random().toString().slice(2, 27),
+        indirizzo: 'Via Demo 123, Padova',
+        attivo: true,
+        regolaBase: regole ? {
+          tipo: regole.regolaBase.tipo,
+          valore: regole.regolaBase.valore,
+          valoreX: regole.regolaBase.valoreX,
+          valoreY: regole.regolaBase.valoreY,
+          su: regole.regolaBase.calcolaSu,
+          detraiCosto: regole.regolaBase.detraiCosti
+        } : {
+          tipo: 'percentuale',
+          valore: 50,
+          su: 'netto',
+          detraiCosto: true
+        },
+        costiProdotti: regole?.costiProdotti ? Object.entries(regole.costiProdotti).map(([codice, costo], idx) => ({
+          id: idx + 1,
+          nome: codice,
+          costo: costo,
+          unitaMisura: 'unità',
+          nonDetrarre: false
+        })) : [],
+        eccezioni: regole?.eccezioni ? regole.eccezioni.map((ecc, idx) => ({
+          id: idx + 1,
+          trattamento: ecc.codice,
+          prodotto: '',
           regola: {
-            tipo: 'percentuale',
-            valore: 60,
-            valoreX: 50,
-            valoreY: 200,
-            su: 'netto',
-            detraiCosto: false
+            tipo: ecc.tipo,
+            valore: ecc.valore,
+            valoreX: ecc.valoreX,
+            valoreY: ecc.valoreY,
+            su: ecc.calcolaSu,
+            detraiCosto: ecc.detraiCosti
           }
-        }
-      ]
-    },
-    {
-      id: 3,
-      nome: 'Laura',
-      cognome: 'Bianchi',
-      specialita: 'Dermatologia',
-      email: 'laura.bianchi@email.com',
-      telefono: '333 5551234',
-      codiceFiscale: 'BNCLRA85C45G224K',
-      partitaIva: '11122233344',
-      iban: 'IT60X0542811101000000789012',
-      indirizzo: 'Via Milano 789, Padova',
-      attivo: true,
-      regolaBase: {
-        tipo: 'fisso',
-        valore: 30,
-        valoreX: 30,
-        valoreY: 1,
-        su: 'lordo',
-        detraiCosto: true
-      },
-      costiProdotti: [],
-      eccezioni: []
-    }
-  ]);
+        })) : []
+      };
+      return medicoEsteso;
+    });
+    
+    setMedici(mediciCompleti);
+  }, [mediciIniziali, regoleCosti]);
+  
 
-  const [selectedMedico, setSelectedMedico] = useState(null);
+  const [selectedMedico, setSelectedMedico] = useState<MedicoExtended | null>(null);
   const [activeTab, setActiveTab] = useState('anagrafica');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<number | null>(null);
   const [showAddProdotto, setShowAddProdotto] = useState(false);
-  const [editingProdotto, setEditingProdotto] = useState(null);
-  const [editingEccezione, setEditingEccezione] = useState(null);
+  const [editingProdotto, setEditingProdotto] = useState<any>(null);
+  const [editingEccezione, setEditingEccezione] = useState<any>(null);
   const [showImportProdotti, setShowImportProdotti] = useState(false);
-  const [importFile, setImportFile] = useState(null);
-  const [importPreview, setImportPreview] = useState(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPreview, setImportPreview] = useState<any>(null);
   const [showImportConfirm, setShowImportConfirm] = useState(false);
   
   // Stati per il simulatore
@@ -125,31 +131,8 @@ const GestioneMedici = () => {
     importoFattura: '',
     ivaInclusa: true
   });
-  const [risultatoSimulazione, setRisultatoSimulazione] = useState(null);
+  const [risultatoSimulazione, setRisultatoSimulazione] = useState<any>(null);
 
-  // Mock prodotti disponibili con prezzi default e unità di misura
-  const prodottiDisponibili = [
-    { nome: 'Allergan', prezzoDefault: 120, unitaMisura: 'fiala' },
-    { nome: 'Juvederm', prezzoDefault: 85, unitaMisura: 'ml' },
-    { nome: 'Restylane', prezzoDefault: 95, unitaMisura: 'siringa' },
-    { nome: 'Teosyal', prezzoDefault: 90, unitaMisura: 'ml' },
-    { nome: 'Revitacare', prezzoDefault: 75, unitaMisura: 'confezione' },
-    { nome: 'Glicolic', prezzoDefault: 45, unitaMisura: 'flacone' },
-    { nome: 'Coleman', prezzoDefault: 110, unitaMisura: 'fiala' },
-    { nome: 'Radiesse', prezzoDefault: 130, unitaMisura: 'siringa' }
-  ];
-
-  // Mock trattamenti disponibili con prodotti associati
-  const trattamentiDisponibili = [
-    { nome: 'Botox Viso', prodottiCompatibili: ['Allergan', 'Juvederm'] },
-    { nome: 'Filler Labbra', prodottiCompatibili: ['Juvederm', 'Teosyal', 'Restylane'] },
-    { nome: 'Filler Zigomi', prodottiCompatibili: ['Juvederm', 'Radiesse', 'Teosyal'] },
-    { nome: 'Biorivitalizzazione', prodottiCompatibili: ['Restylane', 'Revitacare'] },
-    { nome: 'Peeling Chimico', prodottiCompatibili: ['Glicolic'] },
-    { nome: 'Mesoterapia', prodottiCompatibili: ['Revitacare', 'Restylane'] },
-    { nome: 'Filler Rughe', prodottiCompatibili: ['Teosyal', 'Juvederm', 'Restylane'] },
-    { nome: 'Lipofilling', prodottiCompatibili: ['Coleman'] }
-  ];
 
   const [showNewMedico, setShowNewMedico] = useState(false);
   const [newMedico, setNewMedico] = useState({
@@ -209,7 +192,7 @@ const GestioneMedici = () => {
     
     // Controlla se c'è un'eccezione specifica per trattamento + prodotto
     if (simulazione.prodotto) {
-      const eccezioneSpecifica = selectedMedico.eccezioni.find(
+      const eccezioneSpecifica = (selectedMedico?.eccezioni || []).find(
         e => e.trattamento === simulazione.trattamento && e.prodotto === simulazione.prodotto
       );
       if (eccezioneSpecifica) {
@@ -220,7 +203,7 @@ const GestioneMedici = () => {
     
     // Se non c'è eccezione specifica, controlla eccezione solo trattamento
     if (tipoRegola === 'Regola base') {
-      const eccezioneTrattamento = selectedMedico.eccezioni.find(
+      const eccezioneTrattamento = (selectedMedico?.eccezioni || []).find(
         e => e.trattamento === simulazione.trattamento && !e.prodotto
       );
       if (eccezioneTrattamento) {
@@ -252,7 +235,7 @@ const GestioneMedici = () => {
     // Calcola detrazione costo prodotto
     let costoProdotto = 0;
     if (simulazione.prodotto && regolaApplicata.detraiCosto) {
-      const prodottoConfig = selectedMedico.costiProdotti.find(
+      const prodottoConfig = (selectedMedico?.costiProdotti || []).find(
         cp => cp.nome === simulazione.prodotto
       );
       if (prodottoConfig) {
@@ -281,8 +264,8 @@ const GestioneMedici = () => {
   const handleConfirmImport = () => {
     if (importPreview && !importPreview.error) {
       // Applica le modifiche ai prodotti esistenti
-      let updatedCostiProdotti = selectedMedico.costiProdotti.map(p => {
-        const modifica = importPreview.modifiche.find(m => m.nome === p.nome);
+      let updatedCostiProdotti = (selectedMedico?.costiProdotti || []).map((p: any) => {
+        const modifica = importPreview.modifiche.find((m: any) => m.nome === p.nome);
         if (modifica) {
           return {
             ...p,
@@ -294,7 +277,7 @@ const GestioneMedici = () => {
       });
       
       // Aggiungi i nuovi prodotti
-      importPreview.nuoviProdotti.forEach(np => {
+      importPreview.nuoviProdotti.forEach((np: any) => {
         updatedCostiProdotti.push({
           id: Date.now() + Math.random(), // ID unico
           nome: np.nome,
@@ -305,7 +288,7 @@ const GestioneMedici = () => {
       });
       
       const updatedMedico = {
-        ...selectedMedico,
+        ...(selectedMedico as MedicoExtended),
         costiProdotti: updatedCostiProdotti
       };
       
@@ -321,9 +304,9 @@ const GestioneMedici = () => {
     // Se non è admin, salva solo i costi prodotti
     if (!isAdmin) {
       const updatedMedici = medici.map(m => 
-        m.id === selectedMedico.id ? {
+        m.id === selectedMedico?.id ? {
           ...m,
-          costiProdotti: selectedMedico.costiProdotti
+          costiProdotti: selectedMedico?.costiProdotti || []
         } : m
       );
       setMedici(updatedMedici);
@@ -333,13 +316,14 @@ const GestioneMedici = () => {
     }
     
     // Validazione regola base (solo per admin)
+    if (!selectedMedico) return;
     const regola = selectedMedico.regolaBase;
     if (regola.tipo === 'percentuale' && (!regola.valore || regola.valore === '' || regola.valore === 0)) {
       alert('Inserisci una percentuale valida nella regola base');
       return;
     }
     if (regola.tipo === 'scaglioni') {
-      if (!regola.valoreX || !regola.valoreY || regola.valoreX === '' || regola.valoreY === '' || regola.valoreX === 0 || regola.valoreY === 0) {
+      if (!regola.valoreX || !regola.valoreY || regola.valoreX === 0 || regola.valoreY === 0) {
         alert('Inserisci valori validi per gli scaglioni nella regola base (X e Y devono essere maggiori di 0)');
         return;
       }
@@ -348,13 +332,13 @@ const GestioneMedici = () => {
         return;
       }
     }
-    if (regola.tipo === 'fisso' && (!regola.valoreX || !regola.valoreY || regola.valoreX === '' || regola.valoreY === '' || regola.valoreX === 0 || regola.valoreY === 0)) {
+    if (regola.tipo === 'fisso' && (!regola.valoreX || !regola.valoreY || regola.valoreX === 0 || regola.valoreY === 0)) {
       alert('Inserisci valori validi per la quota fissa nella regola base (X e Y devono essere maggiori di 0)');
       return;
     }
     
     // Validazione eccezioni
-    for (const eccezione of selectedMedico.eccezioni) {
+    for (const eccezione of selectedMedico.eccezioni || []) {
       if (!eccezione.trattamento) {
         alert('Tutte le eccezioni devono avere un trattamento selezionato');
         return;
@@ -366,7 +350,7 @@ const GestioneMedici = () => {
         return;
       }
       if (ecc.tipo === 'scaglioni') {
-        if (!ecc.valoreX || !ecc.valoreY || ecc.valoreX === '' || ecc.valoreY === '' || ecc.valoreX === 0 || ecc.valoreY === 0) {
+        if (!ecc.valoreX || !ecc.valoreY || ecc.valoreX === 0 || ecc.valoreY === 0) {
           alert(`L'eccezione per "${eccezione.trattamento}" deve avere valori validi per gli scaglioni`);
           return;
         }
@@ -375,14 +359,14 @@ const GestioneMedici = () => {
           return;
         }
       }
-      if (ecc.tipo === 'fisso' && (!ecc.valoreX || !ecc.valoreY || ecc.valoreX === '' || ecc.valoreY === '' || ecc.valoreX === 0 || ecc.valoreY === 0)) {
+      if (ecc.tipo === 'fisso' && (!ecc.valoreX || !ecc.valoreY || ecc.valoreX === 0 || ecc.valoreY === 0)) {
         alert(`L'eccezione per "${eccezione.trattamento}" deve avere valori validi per la quota fissa`);
         return;
       }
       
       // Validazione prodotto non configurato con detrazione costo
       if (eccezione.prodotto && eccezione.regola.detraiCosto) {
-        const prodottoConfigurato = selectedMedico.costiProdotti.some(
+        const prodottoConfigurato = (selectedMedico.costiProdotti || []).some(
           cp => cp.nome === eccezione.prodotto
         );
         if (!prodottoConfigurato) {
@@ -394,23 +378,23 @@ const GestioneMedici = () => {
     
     // Aggiorna anche la lista principale
     const updatedMedici = medici.map(m => 
-      m.id === selectedMedico.id ? selectedMedico : m
-    );
+      m.id === selectedMedico?.id ? selectedMedico : m
+    ).filter((m): m is MedicoExtended => m !== null);
     setMedici(updatedMedici);
     setHasUnsavedChanges(false);
     alert('Modifiche salvate con successo!');
   };
 
-  const handleDeleteMedico = (id) => {
+  const handleDeleteMedico = (id: number) => {
     setMedici(medici.filter(m => m.id !== id));
     setShowDeleteConfirm(null);
   };
 
-  const handleAddProdotto = (prodotto) => {
+  const handleAddProdotto = (prodotto: any) => {
     if (selectedMedico && prodotto) {
       // Verifica se il prodotto esiste già
-      const prodottoEsistente = selectedMedico.costiProdotti.some(
-        cp => cp.nome === prodotto.nome
+      const prodottoEsistente = (selectedMedico.costiProdotti || []).some(
+        (cp: any) => cp.nome === prodotto.nome
       );
       
       if (prodottoEsistente) {
@@ -431,7 +415,7 @@ const GestioneMedici = () => {
       
       const updatedMedico = {
         ...selectedMedico,
-        costiProdotti: [...selectedMedico.costiProdotti, newProdotto]
+        costiProdotti: [...(selectedMedico.costiProdotti || []), newProdotto]
       };
       
       setSelectedMedico(updatedMedico);
@@ -442,7 +426,7 @@ const GestioneMedici = () => {
   const handleExportProdotti = () => {
     if (selectedMedico) {
       // Prepara i dati per Excel
-      const data = selectedMedico.costiProdotti.map(p => ({
+      const data = (selectedMedico.costiProdotti || []).map(p => ({
         'Nome Prodotto': p.nome,
         'Unità di Misura': p.unitaMisura || 'unità',
         'Costo': p.costo
@@ -492,7 +476,7 @@ const GestioneMedici = () => {
     
     reader.onload = (e) => {
       try {
-        const data = e.target.result;
+        const data = e.target?.result;
         const workbook = XLSX.read(data, { type: 'binary' });
         
         // Prendi il primo foglio
@@ -500,16 +484,16 @@ const GestioneMedici = () => {
         const jsonData = XLSX.utils.sheet_to_json(firstSheet);
         
         // Prepara le modifiche e i nuovi prodotti da confermare
-        const modifiche = [];
-        const nuoviProdotti = [];
-        const prodottiNonValidi = [];
+        const modifiche: any[] = [];
+        const nuoviProdotti: any[] = [];
+        const prodottiNonValidi: any[] = [];
         
-        const prodottiAttualiMap = {};
-        selectedMedico.costiProdotti.forEach(p => {
+        const prodottiAttualiMap: Record<string, any> = {};
+        (selectedMedico?.costiProdotti || []).forEach((p: any) => {
           prodottiAttualiMap[p.nome] = p;
         });
         
-        jsonData.forEach((row) => {
+        jsonData.forEach((row: any) => {
           const nomeProdotto = row['Nome Prodotto'];
           const nuovoCosto = Math.max(0, parseFloat(row['Costo']) || 0);
           
@@ -562,7 +546,7 @@ const GestioneMedici = () => {
         
       } catch (error) {
         setImportPreview({
-          error: `Errore durante la lettura del file Excel: ${error.message}`
+          error: `Errore durante la lettura del file Excel: ${error instanceof Error ? error.message : 'Errore sconosciuto'}`
         });
         setShowImportConfirm(true);
       }
@@ -579,12 +563,12 @@ const GestioneMedici = () => {
     reader.readAsBinaryString(importFile);
   };
 
-  const handleUpdateProdotto = (id, costo) => {
+  const handleUpdateProdotto = (id: number, costo: string | number) => {
     if (selectedMedico) {
-      const nuovoCosto = Math.max(0, parseFloat(costo) || 0); // Previene valori negativi
+      const nuovoCosto = Math.max(0, parseFloat(String(costo)) || 0); // Previene valori negativi
       const updatedMedico = {
         ...selectedMedico,
-        costiProdotti: selectedMedico.costiProdotti.map(p =>
+        costiProdotti: (selectedMedico.costiProdotti || []).map((p: any) =>
           p.id === id ? { 
             ...p, 
             costo: nuovoCosto,
@@ -599,11 +583,11 @@ const GestioneMedici = () => {
     }
   };
 
-  const handleRemoveProdotto = (id) => {
+  const handleRemoveProdotto = (id: number) => {
     if (selectedMedico) {
       const updatedMedico = {
         ...selectedMedico,
-        costiProdotti: selectedMedico.costiProdotti.filter(p => p.id !== id)
+        costiProdotti: (selectedMedico.costiProdotti || []).filter((p: any) => p.id !== id)
       };
       
       setSelectedMedico(updatedMedico);
@@ -611,11 +595,11 @@ const GestioneMedici = () => {
     }
   };
 
-  const handleUpdateEccezione = (id, updates) => {
+  const handleUpdateEccezione = (id: number, updates: any) => {
     if (selectedMedico) {
       const updatedMedico = {
         ...selectedMedico,
-        eccezioni: selectedMedico.eccezioni.map(e =>
+        eccezioni: (selectedMedico.eccezioni || []).map((e: any) =>
           e.id === id ? { ...e, ...updates } : e
         )
       };
@@ -625,11 +609,11 @@ const GestioneMedici = () => {
     }
   };
 
-  const handleRemoveEccezione = (id) => {
+  const handleRemoveEccezione = (id: number) => {
     if (selectedMedico) {
       const updatedMedico = {
         ...selectedMedico,
-        eccezioni: selectedMedico.eccezioni.filter(e => e.id !== id)
+        eccezioni: (selectedMedico.eccezioni || []).filter((e: any) => e.id !== id)
       };
       
       setSelectedMedico(updatedMedico);
@@ -640,10 +624,10 @@ const GestioneMedici = () => {
     }
   };
 
-  const validateCoherence = (regolaBase, eccezioni, costiProdotti) => {
-    const warnings = [];
+  const validateCoherence = (regolaBase: any, eccezioni: any[], costiProdotti: any[]) => {
+    const warnings: any[] = [];
     
-    eccezioni.forEach(eccezione => {
+    eccezioni.forEach((eccezione: any) => {
       // 1. Eccezione identica a regola base
       if (eccezione.regola.tipo === regolaBase.tipo &&
           eccezione.regola.su === regolaBase.su &&
@@ -700,7 +684,7 @@ const GestioneMedici = () => {
     return warnings;
   };
 
-  const getRegolaDescription = (regola) => {
+  const getRegolaDescription = (regola: any) => {
     switch (regola.tipo) {
       case 'percentuale':
         return regola.valore && regola.valore !== '' ? `${regola.valore}% su ${regola.su}` : 'Percentuale non configurata';
@@ -743,8 +727,8 @@ const GestioneMedici = () => {
                 onClick={() => setShowNewMedico(true)}
                 className="px-4 py-2 rounded-lg transition-colors flex items-center gap-2 font-medium shadow-md"
                 style={{ backgroundColor: '#03A6A6', color: '#FFFFFF' }}
-                onMouseEnter={(e) => e.target.style.backgroundColor = '#028a8a'}
-                onMouseLeave={(e) => e.target.style.backgroundColor = '#03A6A6'}
+                onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#028a8a'}
+                onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#03A6A6'}
               >
                 <span className="text-lg" style={{ color: '#FFFFFF' }}>➕</span>
                 <span style={{ color: '#FFFFFF' }}>Aggiungi Medico</span>
@@ -793,17 +777,17 @@ const GestioneMedici = () => {
                 </div>
                 <div className="flex items-center gap-2 text-gray-600">
                   <span className="font-medium">Prodotti configurati:</span>
-                  <span>{medico.costiProdotti.length}</span>
-                  {medico.costiProdotti.length > 0 && (
+                  <span>{(medico.costiProdotti || []).length}</span>
+                  {medico.costiProdotti && medico.costiProdotti.length > 0 && (
                     <span className="text-xs text-gray-500">
-                      ({medico.costiProdotti.slice(0, 2).map(p => p.unitaMisura || 'unità').join(', ')}
-                      {medico.costiProdotti.length > 2 && '...'})
+                      ({(medico.costiProdotti || []).slice(0, 2).map(p => p.unitaMisura || 'unità').join(', ')}
+                      {(medico.costiProdotti || []).length > 2 && '...'})
                     </span>
                   )}
                 </div>
                 <div className="flex items-center gap-2 text-gray-600">
                   <span className="font-medium">Eccezioni:</span>
-                  <span>{medico.eccezioni.length}</span>
+                  <span>{(medico.eccezioni || []).length}</span>
                 </div>
               </div>
 
@@ -848,8 +832,8 @@ const GestioneMedici = () => {
                   onClick={() => setShowDeleteConfirm(null)}
                   className="flex-1 px-4 py-2 border border-gray-300 rounded-lg font-medium"
                   style={{ backgroundColor: '#FFFFFF', color: '#374151' }}
-                  onMouseEnter={(e) => e.target.style.backgroundColor = '#F9FAFB'}
-                  onMouseLeave={(e) => e.target.style.backgroundColor = '#FFFFFF'}
+                  onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#F9FAFB'}
+                  onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#FFFFFF'}
                 >
                   Annulla
                 </button>
@@ -857,8 +841,8 @@ const GestioneMedici = () => {
                   onClick={() => handleDeleteMedico(showDeleteConfirm)}
                   className="flex-1 px-4 py-2 rounded-lg font-medium"
                   style={{ backgroundColor: '#DC2626', color: '#FFFFFF' }}
-                  onMouseEnter={(e) => e.target.style.backgroundColor = '#B91C1C'}
-                  onMouseLeave={(e) => e.target.style.backgroundColor = '#DC2626'}
+                  onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#B91C1C'}
+                  onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#DC2626'}
                 >
                   Elimina
                 </button>
@@ -1012,9 +996,12 @@ const GestioneMedici = () => {
                 <button
                   onClick={() => {
                     if (newMedico.nome && newMedico.cognome && newMedico.codiceFiscale && newMedico.partitaIva && newMedico.email) {
-                      const medicoToAdd = {
+                      const medicoToAdd: MedicoExtended = {
                         ...newMedico,
-                        id: Date.now()
+                        id: Date.now(),
+                        nomeCompleto: `${newMedico.nome} ${newMedico.cognome}`,
+                        cf: newMedico.codiceFiscale,
+                        piva: newMedico.partitaIva
                       };
                       setMedici([...medici, medicoToAdd]);
                       setShowNewMedico(false);
@@ -1046,8 +1033,8 @@ const GestioneMedici = () => {
                   }}
                   className="flex-1 px-4 py-2 rounded-lg font-medium"
                   style={{ backgroundColor: '#03A6A6', color: '#FFFFFF' }}
-                  onMouseEnter={(e) => e.target.style.backgroundColor = '#028a8a'}
-                  onMouseLeave={(e) => e.target.style.backgroundColor = '#03A6A6'}
+                  onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#028a8a'}
+                  onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#03A6A6'}
                 >
                   Salva Medico
                 </button>
@@ -1103,8 +1090,8 @@ const GestioneMedici = () => {
                 backgroundColor: hasUnsavedChanges ? '#03A6A6' : '#E5E7EB',
                 color: hasUnsavedChanges ? '#FFFFFF' : '#9CA3AF'
               }}
-              onMouseEnter={(e) => hasUnsavedChanges && (e.target.style.backgroundColor = '#028a8a')}
-              onMouseLeave={(e) => hasUnsavedChanges && (e.target.style.backgroundColor = '#03A6A6')}
+              onMouseEnter={(e) => hasUnsavedChanges && ((e.target as HTMLElement).style.backgroundColor = '#028a8a')}
+              onMouseLeave={(e) => hasUnsavedChanges && ((e.target as HTMLElement).style.backgroundColor = '#03A6A6')}
             >
               💾 Salva Modifiche
             </button>
@@ -1403,7 +1390,7 @@ const GestioneMedici = () => {
                                 ...selectedMedico,
                                 regolaBase: { 
                                   ...selectedMedico.regolaBase, 
-                                  valore: value === '' ? '' : Math.min(100, Math.max(0, parseInt(value) || 0))
+                                  valore: Math.min(100, Math.max(0, parseInt(value) || 0))
                                 }
                               });
                               setHasUnsavedChanges(true);
@@ -1463,7 +1450,7 @@ const GestioneMedici = () => {
                                 ...selectedMedico,
                                 regolaBase: { 
                                   ...selectedMedico.regolaBase, 
-                                  valoreX: value === '' ? '' : Math.max(0, parseInt(value) || 0)
+                                  valoreX: Math.max(0, parseInt(value) || 0)
                                 }
                               });
                               setHasUnsavedChanges(true);
@@ -1497,7 +1484,7 @@ const GestioneMedici = () => {
                                 ...selectedMedico,
                                 regolaBase: { 
                                   ...selectedMedico.regolaBase, 
-                                  valoreY: value === '' ? '' : Math.max(1, parseInt(value) || 1)
+                                  valoreY: Math.max(1, parseInt(value) || 1)
                                 }
                               });
                               setHasUnsavedChanges(true);
@@ -1559,7 +1546,7 @@ const GestioneMedici = () => {
                                 ...selectedMedico,
                                 regolaBase: { 
                                   ...selectedMedico.regolaBase, 
-                                  valoreX: value === '' ? '' : Math.max(0, parseInt(value) || 0)
+                                  valoreX: Math.max(0, parseInt(value) || 0)
                                 }
                               });
                               setHasUnsavedChanges(true);
@@ -1590,7 +1577,7 @@ const GestioneMedici = () => {
                                 ...selectedMedico,
                                 regolaBase: { 
                                   ...selectedMedico.regolaBase, 
-                                  valoreY: value === '' ? '' : Math.max(1, parseInt(value) || 1)
+                                  valoreY: Math.max(1, parseInt(value) || 1)
                                 }
                               });
                               setHasUnsavedChanges(true);
@@ -1652,8 +1639,8 @@ const GestioneMedici = () => {
                       onClick={handleExportProdotti}
                       className="px-3 py-2 rounded-lg text-sm font-medium shadow-sm flex items-center gap-2"
                       style={{ backgroundColor: '#10B981', color: '#FFFFFF' }}
-                      onMouseEnter={(e) => e.target.style.backgroundColor = '#059669'}
-                      onMouseLeave={(e) => e.target.style.backgroundColor = '#10B981'}
+                      onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#059669'}
+                      onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#10B981'}
                       title="Esporta lista prodotti in Excel"
                     >
                       <Download className="w-4 h-4" />
@@ -1663,8 +1650,8 @@ const GestioneMedici = () => {
                       onClick={() => setShowImportProdotti(true)}
                       className="px-3 py-2 rounded-lg text-sm font-medium shadow-sm flex items-center gap-2"
                       style={{ backgroundColor: '#6192A9', color: '#FFFFFF' }}
-                      onMouseEnter={(e) => e.target.style.backgroundColor = '#5581a0'}
-                      onMouseLeave={(e) => e.target.style.backgroundColor = '#6192A9'}
+                      onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#5581a0'}
+                      onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#6192A9'}
                       title="Importa lista prodotti da Excel"
                     >
                       <Upload className="w-4 h-4" />
@@ -1674,8 +1661,8 @@ const GestioneMedici = () => {
                       onClick={() => setShowAddProdotto(true)}
                       className="px-4 py-2 rounded-lg text-sm font-medium shadow-md flex items-center gap-2"
                       style={{ backgroundColor: '#03A6A6', color: '#FFFFFF' }}
-                      onMouseEnter={(e) => e.target.style.backgroundColor = '#028a8a'}
-                      onMouseLeave={(e) => e.target.style.backgroundColor = '#03A6A6'}
+                      onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#028a8a'}
+                      onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#03A6A6'}
                     >
                       <span className="text-lg" style={{ color: '#FFFFFF' }}>➕</span>
                       <span style={{ color: '#FFFFFF' }}>Aggiungi Prodotto</span>
@@ -1683,9 +1670,9 @@ const GestioneMedici = () => {
                   </div>
                 </div>
                 
-                {selectedMedico.costiProdotti.length > 0 ? (
+                {selectedMedico.costiProdotti && selectedMedico.costiProdotti.length > 0 ? (
                   <div className="space-y-2">
-                    {selectedMedico.costiProdotti.map((prodotto) => (
+                    {(selectedMedico.costiProdotti || []).map((prodotto) => (
                       <div
                         key={prodotto.id}
                         className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
@@ -1706,10 +1693,10 @@ const GestioneMedici = () => {
                               <input
                                 type="number"
                                 defaultValue={prodotto.costo}
-                                onBlur={(e) => handleUpdateProdotto(prodotto.id, e.target.value)}
-                                onKeyPress={(e) => {
+                                onBlur={(e) => handleUpdateProdotto(prodotto.id, (e.target as HTMLInputElement).value)}
+                                onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
-                                    handleUpdateProdotto(prodotto.id, e.target.value);
+                                    handleUpdateProdotto(prodotto.id, (e.target as HTMLInputElement).value);
                                   }
                                 }}
                                 className="w-20 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
@@ -1749,9 +1736,9 @@ const GestioneMedici = () => {
                   <p className="text-xs text-gray-500 italic">
                     💡 Usa Import Excel per aggiungere/aggiornare rapidamente molti prodotti o copiare configurazioni tra medici
                   </p>
-                  {selectedMedico.costiProdotti.length > 0 && (
+                  {selectedMedico.costiProdotti && selectedMedico.costiProdotti.length > 0 && (
                     <span className="text-xs text-gray-600 font-medium">
-                      {selectedMedico.costiProdotti.length} prodotti configurati
+                      {(selectedMedico.costiProdotti || []).length} prodotti configurati
                     </span>
                   )}
                 </div>
@@ -1781,9 +1768,9 @@ const GestioneMedici = () => {
               {/* Analisi coerenza */}
               {(() => {
                 const warnings = validateCoherence(
-                  selectedMedico.regolaBase, 
-                  selectedMedico.eccezioni,
-                  selectedMedico.costiProdotti
+                  selectedMedico?.regolaBase || {}, 
+                  selectedMedico?.eccezioni || [],
+                  selectedMedico?.costiProdotti || []
                 );
                 const identiche = warnings.filter(w => w.tipo === 'identica').length;
                 const generose = warnings.filter(w => w.tipo === 'generosa').length;
@@ -1831,8 +1818,8 @@ const GestioneMedici = () => {
                     onClick={() => setShowAddEccezione(true)}
                     className="px-4 py-2 rounded-lg text-sm font-medium shadow-md flex items-center gap-2"
                     style={{ backgroundColor: '#03A6A6', color: '#FFFFFF' }}
-                    onMouseEnter={(e) => e.target.style.backgroundColor = '#028a8a'}
-                    onMouseLeave={(e) => e.target.style.backgroundColor = '#03A6A6'}
+                    onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#028a8a'}
+                    onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#03A6A6'}
                   >
                     <span className="text-lg" style={{ color: '#FFFFFF' }}>➕</span>
                     <span style={{ color: '#FFFFFF' }}>Aggiungi Eccezione</span>
@@ -1840,15 +1827,15 @@ const GestioneMedici = () => {
                 )}
               </div>
 
-              {selectedMedico.eccezioni.length > 0 ? (
+              {(selectedMedico?.eccezioni || []).length > 0 ? (
                 <div className="space-y-4">
-                  {selectedMedico.eccezioni.map((eccezione) => {
+                  {(selectedMedico?.eccezioni || []).map((eccezione) => {
                     // Trova avvisi per questa eccezione
                     const warnings = validateCoherence(
-                      selectedMedico.regolaBase,
-                      selectedMedico.eccezioni,
-                      selectedMedico.costiProdotti
-                    ).filter(w => w.eccezione.id === eccezione.id);
+                      selectedMedico?.regolaBase || {},
+                      selectedMedico?.eccezioni || [],
+                      selectedMedico?.costiProdotti || []
+                    ).filter((w: any) => w.eccezione?.id === eccezione.id);
                     
                     return (
                       <div key={eccezione.id}>
@@ -1885,19 +1872,19 @@ const GestioneMedici = () => {
                                 {eccezione.trattamento && 
                                   trattamentiDisponibili
                                     .find(t => t.nome === eccezione.trattamento)
-                                    ?.prodottiCompatibili.map(prod => {
-                                      const isConfigurato = selectedMedico.costiProdotti.some(cp => cp.nome === prod);
+                                    ? prodottiDisponibili.map((prod: any) => {
+                                      const isConfigurato = (selectedMedico?.costiProdotti || []).some(cp => cp.nome === prod);
                                       return (
                                         <option key={prod} value={prod}>
                                           {prod} {!isConfigurato && '⚠️ Non configurato'}
                                         </option>
                                       );
                                     })
-                                }
+                                  : null}
                               </select>
                               {/* Avviso inline se prodotto non configurato */}
                               {eccezione.prodotto && eccezione.regola.detraiCosto && 
-                               !selectedMedico.costiProdotti.some(cp => cp.nome === eccezione.prodotto) && (
+                               !(selectedMedico.costiProdotti || []).some(cp => cp.nome === eccezione.prodotto) && (
                                 <p className="text-xs text-red-600 mt-1">
                                   ⚠️ Prodotto non configurato - disattiva detrazione o configura il prodotto
                                 </p>
@@ -1960,7 +1947,7 @@ const GestioneMedici = () => {
                                       handleUpdateEccezione(eccezione.id, {
                                         regola: { 
                                           ...eccezione.regola, 
-                                          valore: value === '' ? '' : Math.min(100, Math.max(0, parseInt(value) || 0))
+                                          valore: Math.min(100, Math.max(0, parseInt(value) || 0))
                                         }
                                       });
                                     }}
@@ -2004,7 +1991,7 @@ const GestioneMedici = () => {
                                       handleUpdateEccezione(eccezione.id, {
                                         regola: { 
                                           ...eccezione.regola, 
-                                          valoreX: value === '' ? '' : Math.max(0, parseInt(value) || 0)
+                                          valoreX: Math.max(0, parseInt(value) || 0)
                                         }
                                       });
                                     }}
@@ -2029,7 +2016,7 @@ const GestioneMedici = () => {
                                       handleUpdateEccezione(eccezione.id, {
                                         regola: { 
                                           ...eccezione.regola, 
-                                          valoreY: value === '' ? '' : Math.max(1, parseInt(value) || 1)
+                                          valoreY: Math.max(1, parseInt(value) || 1)
                                         }
                                       });
                                     }}
@@ -2078,7 +2065,7 @@ const GestioneMedici = () => {
                                       handleUpdateEccezione(eccezione.id, {
                                         regola: { 
                                           ...eccezione.regola, 
-                                          valoreX: value === '' ? '' : Math.max(0, parseInt(value) || 0)
+                                          valoreX: Math.max(0, parseInt(value) || 0)
                                         }
                                       });
                                     }}
@@ -2103,7 +2090,7 @@ const GestioneMedici = () => {
                                       handleUpdateEccezione(eccezione.id, {
                                         regola: { 
                                           ...eccezione.regola, 
-                                          valoreY: value === '' ? '' : Math.max(1, parseInt(value) || 1)
+                                          valoreY: Math.max(1, parseInt(value) || 1)
                                         }
                                       });
                                     }}
@@ -2149,7 +2136,7 @@ const GestioneMedici = () => {
                                 
                                 // Validazione prodotto non configurato con detrazione costo
                                 if (eccezione.prodotto && eccezione.regola.detraiCosto) {
-                                  const prodottoConfigurato = selectedMedico.costiProdotti.some(
+                                  const prodottoConfigurato = (selectedMedico.costiProdotti || []).some(
                                     cp => cp.nome === eccezione.prodotto
                                   );
                                   if (!prodottoConfigurato) {
@@ -2162,8 +2149,8 @@ const GestioneMedici = () => {
                               }}
                               className="px-3 py-1 rounded text-sm"
                               style={{ backgroundColor: '#10B981', color: '#FFFFFF' }}
-                              onMouseEnter={(e) => e.target.style.backgroundColor = '#059669'}
-                              onMouseLeave={(e) => e.target.style.backgroundColor = '#10B981'}
+                              onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#059669'}
+                              onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#10B981'}
                             >
                               Conferma
                             </button>
@@ -2298,14 +2285,15 @@ const GestioneMedici = () => {
                       {simulazione.trattamento && 
                         trattamentiDisponibili
                           .find(t => t.nome === simulazione.trattamento)
-                          ?.prodottiCompatibili.map(prod => {
-                            const costoConfig = selectedMedico.costiProdotti.find(cp => cp.nome === prod);
+                          ? prodottiDisponibili.map((prod: any) => {
+                            const costoConfig = (selectedMedico?.costiProdotti || []).find(cp => cp.nome === prod);
                             return (
                               <option key={prod} value={prod}>
                                 {prod} {costoConfig ? `(€${costoConfig.costo}/${costoConfig.unitaMisura})` : '(non configurato)'}
                               </option>
                             );
                           })
+                        : null
                       }
                     </select>
                   </div>
@@ -2366,8 +2354,8 @@ const GestioneMedici = () => {
                     onClick={calcolaCompenso}
                     className="w-full px-4 py-2 rounded-lg font-medium"
                     style={{ backgroundColor: '#03A6A6', color: '#FFFFFF' }}
-                    onMouseEnter={(e) => e.target.style.backgroundColor = '#028a8a'}
-                    onMouseLeave={(e) => e.target.style.backgroundColor = '#03A6A6'}
+                    onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#028a8a'}
+                    onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#03A6A6'}
                   >
                     Calcola Compenso
                   </button>
@@ -2463,17 +2451,19 @@ const GestioneMedici = () => {
                   onChange={(e) => {
                     const prodotto = prodottiDisponibili.find(p => p.nome === e.target.value);
                     if (prodotto) {
-                      document.getElementById('nuovo-prodotto-costo').value = prodotto.prezzoDefault;
-                      document.getElementById('usa-prezzo-default').checked = true;
+                      const costoInput = document.getElementById('nuovo-prodotto-costo') as HTMLInputElement;
+                      const checkboxInput = document.getElementById('usa-prezzo-default') as HTMLInputElement;
+                      if (costoInput) costoInput.value = String(prodotto.prezzoDefault);
+                      if (checkboxInput) checkboxInput.checked = true;
                     }
                   }}
                 >
                   <option value="">Seleziona prodotto...</option>
                   {prodottiDisponibili
-                    .filter(prod => !selectedMedico.costiProdotti.some(cp => cp.nome === prod.nome))
+                    .filter(prod => !(selectedMedico.costiProdotti || []).some(cp => cp.nome === prod.nome))
                     .map(prod => {
                       // Verifica se questo prodotto è richiesto da eccezioni con detrazione
-                      const richiestoPerEccezioni = selectedMedico.eccezioni.some(
+                      const richiestoPerEccezioni = (selectedMedico.eccezioni || []).some(
                         ecc => ecc.prodotto === prod.nome && ecc.regola.detraiCosto
                       );
                       
@@ -2489,7 +2479,7 @@ const GestioneMedici = () => {
               
               {/* Messaggio se tutti i prodotti sono già stati aggiunti */}
               {prodottiDisponibili.every(prod => 
-                selectedMedico.costiProdotti.some(cp => cp.nome === prod.nome)
+                (selectedMedico.costiProdotti || []).some(cp => cp.nome === prod.nome)
               ) && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
                   <p className="text-amber-800">
@@ -2500,10 +2490,10 @@ const GestioneMedici = () => {
               
               {/* Avviso prodotti mancanti per eccezioni */}
               {(() => {
-                const prodottiMancanti = selectedMedico.eccezioni
+                const prodottiMancanti = (selectedMedico.eccezioni || [])
                   .filter(ecc => ecc.prodotto && ecc.regola.detraiCosto)
                   .map(ecc => ecc.prodotto)
-                  .filter(prod => !selectedMedico.costiProdotti.some(cp => cp.nome === prod))
+                  .filter(prod => !(selectedMedico.costiProdotti || []).some(cp => cp.nome === prod))
                   .filter((value, index, self) => self.indexOf(value) === index); // rimuovi duplicati
                 
                 if (prodottiMancanti.length > 0) {
@@ -2529,13 +2519,13 @@ const GestioneMedici = () => {
                   id="usa-prezzo-default"
                   defaultChecked
                   onChange={(e) => {
-                    const select = document.getElementById('nuovo-prodotto-nome');
-                    const prodotto = prodottiDisponibili.find(p => p.nome === select.value);
-                    const costoInput = document.getElementById('nuovo-prodotto-costo');
-                    if (e.target.checked && prodotto) {
-                      costoInput.value = prodotto.prezzoDefault;
+                    const select = document.getElementById('nuovo-prodotto-nome') as HTMLSelectElement;
+                    const prodotto = prodottiDisponibili.find(p => p.nome === select?.value);
+                    const costoInput = document.getElementById('nuovo-prodotto-costo') as HTMLInputElement;
+                    if (e.target.checked && prodotto && costoInput) {
+                      costoInput.value = prodotto.prezzoDefault.toString();
                       costoInput.disabled = true;
-                    } else {
+                    } else if (costoInput) {
                       costoInput.disabled = false;
                     }
                   }}
@@ -2549,7 +2539,8 @@ const GestioneMedici = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Costo (€){(() => {
-                    const selectedProd = prodottiDisponibili.find(p => p.nome === document.getElementById('nuovo-prodotto-nome')?.value);
+                    const nomeInput = document.getElementById('nuovo-prodotto-nome') as HTMLInputElement;
+                    const selectedProd = prodottiDisponibili.find((p: any) => p.nome === nomeInput?.value);
                     return selectedProd ? ` per ${selectedProd.unitaMisura}` : '';
                   })()}
                 </label>
@@ -2583,12 +2574,14 @@ const GestioneMedici = () => {
               </button>
               <button
                 onClick={() => {
-                  const nome = document.getElementById('nuovo-prodotto-nome').value;
-                  const costo = document.getElementById('nuovo-prodotto-costo').value;
+                  const nomeInput = document.getElementById('nuovo-prodotto-nome') as HTMLInputElement;
+                  const costoInput = document.getElementById('nuovo-prodotto-costo') as HTMLInputElement;
+                  const nome = nomeInput?.value || '';
+                  const costo = costoInput?.value || '0';
                   
                   if (nome) {
                     // Verifica duplicato prima di aggiungere
-                    if (selectedMedico.costiProdotti.some(cp => cp.nome === nome)) {
+                    if ((selectedMedico.costiProdotti || []).some(cp => cp.nome === nome)) {
                       alert(`Il prodotto "${nome}" è già stato configurato per questo medico`);
                       return;
                     }
@@ -2606,8 +2599,8 @@ const GestioneMedici = () => {
                 }}
                 className="flex-1 px-4 py-2 rounded-lg font-medium"
                 style={{ backgroundColor: '#03A6A6', color: '#FFFFFF' }}
-                onMouseEnter={(e) => e.target.style.backgroundColor = '#028a8a'}
-                onMouseLeave={(e) => e.target.style.backgroundColor = '#03A6A6'}
+                onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#028a8a'}
+                onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#03A6A6'}
               >
                 Aggiungi
               </button>
@@ -2655,14 +2648,15 @@ const GestioneMedici = () => {
                     {newEccezione.trattamento && 
                       trattamentiDisponibili
                         .find(t => t.nome === newEccezione.trattamento)
-                        ?.prodottiCompatibili.map(prod => {
-                          const isConfigurato = selectedMedico.costiProdotti.some(cp => cp.nome === prod);
+                        ? prodottiDisponibili.map((prod: any) => {
+                          const isConfigurato = (selectedMedico?.costiProdotti || []).some(cp => cp.nome === prod);
                           return (
                             <option key={prod} value={prod}>
                               {prod} {!isConfigurato && '⚠️ Non configurato'}
                             </option>
                           );
                         })
+                      : null
                     }
                   </select>
                 </div>
@@ -2670,7 +2664,7 @@ const GestioneMedici = () => {
 
               {/* Avviso se combinazione già esistente */}
               {newEccezione.trattamento && 
-               selectedMedico.eccezioni.some(e => 
+               (selectedMedico.eccezioni || []).some(e => 
                  e.trattamento === newEccezione.trattamento && 
                  e.prodotto === newEccezione.prodotto
                ) && (
@@ -2683,7 +2677,7 @@ const GestioneMedici = () => {
               
               {/* Avviso prodotto non configurato */}
               {newEccezione.prodotto && newEccezione.regola.detraiCosto && 
-               !selectedMedico.costiProdotti.some(cp => cp.nome === newEccezione.prodotto) && (
+               !(selectedMedico.costiProdotti || []).some(cp => cp.nome === newEccezione.prodotto) && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm">
                   <p className="text-red-800">
                     ❌ Il prodotto "{newEccezione.prodotto}" non è configurato nella lista costi.
@@ -2748,14 +2742,14 @@ const GestioneMedici = () => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Percentuale</label>
                       <input
                         type="number"
-                        value={newEccezione.regola.valore === '' ? '' : newEccezione.regola.valore}
+                        value={newEccezione.regola.valore || ''}
                         onChange={(e) => {
                           const value = e.target.value;
                           setNewEccezione({
                             ...newEccezione,
                             regola: { 
                               ...newEccezione.regola, 
-                              valore: value === '' ? '' : Math.min(100, Math.max(0, parseInt(value) || 0))
+                              valore: Math.min(100, Math.max(0, parseInt(value) || 0))
                             }
                           });
                         }}
@@ -2795,14 +2789,14 @@ const GestioneMedici = () => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Euro da dare (X)</label>
                       <input
                         type="number"
-                        value={newEccezione.regola.valoreX === '' ? '' : newEccezione.regola.valoreX}
+                        value={newEccezione.regola.valoreX || ''}
                         onChange={(e) => {
                           const value = e.target.value;
                           setNewEccezione({
                             ...newEccezione,
                             regola: { 
                               ...newEccezione.regola, 
-                              valoreX: value === '' ? '' : Math.max(0, parseInt(value) || 0)
+                              valoreX: Math.max(0, parseInt(value) || 0)
                             }
                           });
                         }}
@@ -2822,14 +2816,14 @@ const GestioneMedici = () => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Ogni euro (Y)</label>
                       <input
                         type="number"
-                        value={newEccezione.regola.valoreY === '' ? '' : newEccezione.regola.valoreY}
+                        value={newEccezione.regola.valoreY || ''}
                         onChange={(e) => {
                           const value = e.target.value;
                           setNewEccezione({
                             ...newEccezione,
                             regola: { 
                               ...newEccezione.regola, 
-                              valoreY: value === '' ? '' : Math.max(1, parseInt(value) || 1)
+                              valoreY: Math.max(1, parseInt(value) || 1)
                             }
                           });
                         }}
@@ -2874,14 +2868,14 @@ const GestioneMedici = () => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Euro fisso (X)</label>
                       <input
                         type="number"
-                        value={newEccezione.regola.valoreX === '' ? '' : newEccezione.regola.valoreX}
+                        value={newEccezione.regola.valoreX || ''}
                         onChange={(e) => {
                           const value = e.target.value;
                           setNewEccezione({
                             ...newEccezione,
                             regola: { 
                               ...newEccezione.regola, 
-                              valoreX: value === '' ? '' : Math.max(0, parseInt(value) || 0)
+                              valoreX: Math.max(0, parseInt(value) || 0)
                             }
                           });
                         }}
@@ -2901,14 +2895,14 @@ const GestioneMedici = () => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Ogni prestazioni (Y)</label>
                       <input
                         type="number"
-                        value={newEccezione.regola.valoreY === '' ? '' : newEccezione.regola.valoreY}
+                        value={newEccezione.regola.valoreY || ''}
                         onChange={(e) => {
                           const value = e.target.value;
                           setNewEccezione({
                             ...newEccezione,
                             regola: { 
                               ...newEccezione.regola, 
-                              valoreY: value === '' ? '' : Math.max(1, parseInt(value) || 1)
+                              valoreY: Math.max(1, parseInt(value) || 1)
                             }
                           });
                         }}
@@ -2970,7 +2964,7 @@ const GestioneMedici = () => {
                 onClick={() => {
                   if (newEccezione.trattamento && selectedMedico) {
                     // Verifica che non esista già questa combinazione
-                    const esisteGia = selectedMedico.eccezioni.some(e => 
+                    const esisteGia = (selectedMedico.eccezioni || []).some(e => 
                       e.trattamento === newEccezione.trattamento && 
                       e.prodotto === newEccezione.prodotto
                     );
@@ -2983,7 +2977,6 @@ const GestioneMedici = () => {
                     // Validazione regola scaglioni
                     if (newEccezione.regola.tipo === 'scaglioni') {
                       if (!newEccezione.regola.valoreX || !newEccezione.regola.valoreY || 
-                          newEccezione.regola.valoreX === '' || newEccezione.regola.valoreY === '' ||
                           newEccezione.regola.valoreX === 0 || newEccezione.regola.valoreY === 0) {
                         alert('Inserisci valori validi per gli scaglioni (X e Y devono essere maggiori di 0)');
                         return;
@@ -2996,7 +2989,7 @@ const GestioneMedici = () => {
                     
                     // Validazione prodotto non configurato con detrazione costo
                     if (newEccezione.prodotto && newEccezione.regola.detraiCosto) {
-                      const prodottoConfigurato = selectedMedico.costiProdotti.some(
+                      const prodottoConfigurato = (selectedMedico.costiProdotti || []).some(
                         cp => cp.nome === newEccezione.prodotto
                       );
                       if (!prodottoConfigurato) {
@@ -3012,7 +3005,7 @@ const GestioneMedici = () => {
                     
                     const updatedMedico = {
                       ...selectedMedico,
-                      eccezioni: [...selectedMedico.eccezioni, eccezioneToAdd]
+                      eccezioni: [...(selectedMedico.eccezioni || []), eccezioneToAdd]
                     };
                     
                     setSelectedMedico(updatedMedico);
@@ -3036,8 +3029,8 @@ const GestioneMedici = () => {
                 }}
                 className="flex-1 px-4 py-2 rounded-lg font-medium"
                 style={{ backgroundColor: '#03A6A6', color: '#FFFFFF' }}
-                onMouseEnter={(e) => e.target.style.backgroundColor = '#028a8a'}
-                onMouseLeave={(e) => e.target.style.backgroundColor = '#03A6A6'}
+                onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#028a8a'}
+                onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#03A6A6'}
               >
                 Aggiungi Eccezione
               </button>
@@ -3079,7 +3072,7 @@ const GestioneMedici = () => {
                 <input
                   type="file"
                   accept=".xlsx,.xls"
-                  onChange={(e) => setImportFile(e.target.files[0])}
+                  onChange={(e) => setImportFile(e.target.files?.[0] || null)}
                   className="hidden"
                   id="file-upload"
                 />
@@ -3124,8 +3117,8 @@ const GestioneMedici = () => {
                   color: importFile ? '#FFFFFF' : '#9CA3AF',
                   cursor: importFile ? 'pointer' : 'not-allowed'
                 }}
-                onMouseEnter={(e) => importFile && (e.target.style.backgroundColor = '#028a8a')}
-                onMouseLeave={(e) => importFile && (e.target.style.backgroundColor = '#03A6A6')}
+                onMouseEnter={(e) => importFile && ((e.target as HTMLElement).style.backgroundColor = '#028a8a')}
+                onMouseLeave={(e) => importFile && ((e.target as HTMLElement).style.backgroundColor = '#03A6A6')}
               >
                 Importa
               </button>
@@ -3163,8 +3156,8 @@ const GestioneMedici = () => {
                   }}
                   className="w-full px-4 py-2 rounded-lg font-medium"
                   style={{ backgroundColor: '#03A6A6', color: '#FFFFFF' }}
-                  onMouseEnter={(e) => e.target.style.backgroundColor = '#028a8a'}
-                  onMouseLeave={(e) => e.target.style.backgroundColor = '#03A6A6'}
+                  onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#028a8a'}
+                  onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#03A6A6'}
                 >
                   Chiudi
                 </button>
@@ -3190,12 +3183,12 @@ const GestioneMedici = () => {
                       Modifiche ai prodotti esistenti ({importPreview.modifiche.length}):
                     </h4>
                     <div className="bg-blue-50 rounded-lg p-3 space-y-1">
-                      {importPreview.modifiche.map((m, idx) => (
+                      {importPreview.modifiche.map((m: any, idx: number) => (
                         <div key={idx} className="flex items-center justify-between text-sm">
                           <span className="font-medium text-gray-700">
                             {m.nome} 
                             <span className="text-xs text-gray-500 ml-1">
-                              per {selectedMedico.costiProdotti.find(p => p.nome === m.nome)?.unitaMisura || 'unità'}
+                              per {(selectedMedico.costiProdotti || []).find(p => p.nome === m.nome)?.unitaMisura || 'unità'}
                             </span>
                           </span>
                           <span className="text-gray-600">
@@ -3214,7 +3207,7 @@ const GestioneMedici = () => {
                       Nuovi prodotti da aggiungere ({importPreview.nuoviProdotti.length}):
                     </h4>
                     <div className="bg-green-50 rounded-lg p-3 space-y-1">
-                      {importPreview.nuoviProdotti.map((p, idx) => (
+                      {importPreview.nuoviProdotti.map((p: any, idx: number) => (
                         <div key={idx} className="flex items-center justify-between text-sm">
                           <span className="font-medium text-gray-700">
                             {p.nome} <span className="text-xs text-gray-500">per {p.unitaMisura}</span>
@@ -3255,8 +3248,8 @@ const GestioneMedici = () => {
                     onClick={handleConfirmImport}
                     className="flex-1 px-4 py-2 rounded-lg font-medium"
                     style={{ backgroundColor: '#03A6A6', color: '#FFFFFF' }}
-                    onMouseEnter={(e) => e.target.style.backgroundColor = '#028a8a'}
-                    onMouseLeave={(e) => e.target.style.backgroundColor = '#03A6A6'}
+                    onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#028a8a'}
+                    onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = '#03A6A6'}
                   >
                     Conferma Import
                   </button>
@@ -3270,32 +3263,4 @@ const GestioneMedici = () => {
   );
 };
 
-// App wrapper per demo standalone
-export default function App() {
-  return (
-    <div className="min-h-screen bg-gray-100 p-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">
-            Gestione Medici - Demo Standalone
-          </h1>
-          <p className="text-gray-600">
-            Componente Gestione Medici con permessi e Import/Export Excel funzionanti.
-          </p>
-          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-            <p className="text-sm text-blue-800">
-              ℹ️ <strong>Permessi implementati:</strong>
-            </p>
-            <ul className="text-xs text-blue-700 mt-1 ml-4 list-disc">
-              <li><strong>Admin:</strong> può modificare tutto, eliminare medici</li>
-              <li><strong>Altri ruoli:</strong> solo lettura, ma possono modificare i costi prodotti</li>
-              <li>Usa il selector "Ruolo" per testare i diversi permessi</li>
-            </ul>
-          </div>
-        </div>
-        
-        <GestioneMedici />
-      </div>
-    </div>
-  );
-}
+export default GestioneMedici;
