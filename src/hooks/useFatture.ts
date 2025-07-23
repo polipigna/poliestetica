@@ -29,11 +29,16 @@ export function useFatture() {
   }, []);
 
   // Rigenera fatture con config personalizzata
-  const regenerate = useCallback((config: FattureGeneratorConfig) => {
+  const regenerate = useCallback((config: FattureGeneratorConfig | 'test-anomalie') => {
     setIsLoading(true);
     try {
-      const newFatture = FattureGenerator.generate(config);
-      FattureGenerator.save();
+      let newFatture: Fattura[];
+      if (config === 'test-anomalie') {
+        newFatture = FattureGenerator.generateTestAnomalie();
+      } else {
+        newFatture = FattureGenerator.generate(config);
+        FattureGenerator.save();
+      }
       setFatture(newFatture);
       return true;
     } catch (error) {

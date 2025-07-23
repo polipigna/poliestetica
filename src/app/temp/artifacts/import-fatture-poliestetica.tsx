@@ -8,7 +8,6 @@ import {
   AlertCircle,
   Download,
   Upload,
-  FileSpreadsheet,
   Plus,
   ChevronDown,
   ChevronUp,
@@ -19,10 +18,11 @@ import {
 } from 'lucide-react';
 import type { Fattura, Medico, Prestazione, Prodotto, VoceFattura } from '@/data/mock';
 import { 
-  isCodiceValido, 
   parseCodiceFattura, 
   prestazioneRichiedeProdotti,
-  getProdottiValidiPerPrestazione
+  getProdottiValidiPerPrestazione,
+  combinazioni,
+  macchinari
 } from '@/data/mock';
 
 // Interfacce per gestione voci estesa
@@ -46,12 +46,6 @@ interface ImportFattureProps {
   onImport?: (ids: number[]) => void;
   onUpdateFattura?: (id: number, updates: Partial<FatturaConVoci>) => void;
   onRegenerate?: (config: any) => void;
-  conteggiStati?: {
-    da_importare: number;
-    verificata: number;
-    anomalia: number;
-    importata: number;
-  };
 }
 
 // Import Fatture Component
@@ -64,16 +58,12 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   onSync,
   onImport,
   onUpdateFattura,
-  onRegenerate,
-  conteggiStati
+  onRegenerate
 }) => {
   // Usa le fatture dai props
   const [fatture, setFatture] = useState<FatturaConVoci[]>(fattureProps);
   
-  // Aggiorna lo stato quando cambiano i props
-  useEffect(() => {
-    setFatture(fattureProps);
-  }, [fattureProps]);
+  // REMOVED - Will be added after getAnomalieFattura is defined
   
   // Crea una mappa delle prestazioni per accesso rapido
   const prestazioniMap = useMemo(() => {
@@ -98,6 +88,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   const [filtroStato, setFiltroStato] = useState('tutti');
   const [filtroDataDa, setFiltroDataDa] = useState('');
   const [filtroDataA, setFiltroDataA] = useState('');
+  const [filtroAnomalia, setFiltroAnomalia] = useState('tutte');
+  const [filtroMedico, setFiltroMedico] = useState('tutti');
+  const [filtroSerie, setFiltroSerie] = useState('tutte');
   const [isImporting, setIsImporting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [showAssignMedico, setShowAssignMedico] = useState(false);
@@ -110,126 +103,79 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   const [syncSummary, setSyncSummary] = useState<{ nuove: number; aggiornate: number; totali: number } | null>(null);
   const [showAddProdottiModal, setShowAddProdottiModal] = useState<{ fatturaId: number; prestazione: string } | null>(null);
   const [quantitaTemp, setQuantitaTemp] = useState<{ fatturaId: number; voceId: number; quantita: number } | null>(null);
+  const [showCorreggiCodiceModal, setShowCorreggiCodiceModal] = useState<{ fatturaId: number; voceId: number; codiceAttuale: string } | null>(null);
+  const [filtroRiepilogoMedico, setFiltroRiepilogoMedico] = useState('tutti');
+  const [filtroRiepilogoSerie, setFiltroRiepilogoSerie] = useState('tutte');
 
   // Mock stati
   const lastSync = '15 minuti fa';
-  const lastImport = '10 minuti fa';
 
-  // Filtri applicati
-  const fattureFiltered = useMemo(() => {
-    return fatture.filter(f => {
-      if (filtroStato !== 'tutti' && f.stato !== filtroStato) return false;
-      
-      // Filtro date (semplificato per demo)
-      if (filtroDataDa || filtroDataA) {
-        // Ottieni la data della fattura (data o dataEmissione)
-        const dataString = f.data || f.dataEmissione;
-        if (!dataString) return true; // Se non c'è data, includi la fattura
-        
-        const dataFattura = new Date(dataString);
-        
-        if (filtroDataDa) {
-          const dataDa = new Date(filtroDataDa);
-          if (dataFattura < dataDa) return false;
-        }
-        
-        if (filtroDataA) {
-          const dataA = new Date(filtroDataA);
-          // Aggiungi 23:59:59 alla data A per includere tutto il giorno
-          dataA.setHours(23, 59, 59, 999);
-          if (dataFattura > dataA) return false;
-        }
-      }
-      
-      return true;
-    });
-  }, [fatture, filtroStato, filtroDataDa, filtroDataA]);
-
-  // Funzione per verificare anomalie voci
-  const verificaAnomalieVoce = (voce: VoceFatturaEstesa, voci: VoceFatturaEstesa[]): string[] => {
+  // Funzione per verificare anomalie voci - Mossa prima di useMemo per evitare hoisting issues
+  const verificaAnomalieVoce = useMemo(() => {
+    return (voce: VoceFatturaEstesa, voci: VoceFatturaEstesa[]): string[] => {
     const anomalie: string[] = [];
-    const codicePulito = voce.codice.replace(/^\d/, '');
+    
+    // Controlla se è un prodotto o prestazione
     const parsed = parseCodiceFattura(voce.codice);
-
-    // 1. Verifica codice valido
-    if (!isCodiceValido(codicePulito)) {
-      anomalie.push('codice_sconosciuto');
+    if (!parsed.valido) {
+      return ['codice_sconosciuto'];
     }
-
-    // 2. Per i prodotti
+    
     if (parsed.isProdotto) {
-      // Verifica prezzo prodotto (deve essere 0 o null/undefined)
-      if (voce.importoNetto !== 0 && voce.importoNetto !== null && voce.importoNetto !== undefined) {
-        // Verifica se esiste la prestazione madre
-        const prestazioneMadre = voci.find(v => {
-          const vParsed = parseCodiceFattura(v.codice);
-          return vParsed.isPrestazione && v.codice === parsed.prestazione;
-        });
-        if (prestazioneMadre) {
-          anomalie.push('prodotto_con_prezzo');
-        }
+      // Controllo prodotto con prezzo
+      if (voce.importoNetto > 0) {
+        anomalie.push('prodotto_con_prezzo');
       }
-
-      // Verifica prodotto orfano
-      const hasPrestazioneMadre = voci.some(v => {
-        const vParsed = parseCodiceFattura(v.codice);
-        return vParsed.isPrestazione && v.codice === parsed.prestazione;
-      });
-      if (!hasPrestazioneMadre) {
+      
+      // Controllo prodotto orfano
+      const prestazionePadre = voci.find(v => 
+        v.codice === parsed.prestazione && parseCodiceFattura(v.codice).isPrestazione
+      );
+      if (!prestazionePadre) {
         anomalie.push('prodotto_orfano');
       }
-    }
-
-    // 3. Per le prestazioni
-    if (parsed.isPrestazione) {
-      // Verifica prestazione incompleta
-      if (prestazioneRichiedeProdotti(voce.codice)) {
-        const hasProdotti = voci.some(v => {
-          const vParsed = parseCodiceFattura(v.codice);
-          return vParsed.isProdotto && vParsed.prestazione === voce.codice;
+      
+      // Controllo unità di misura
+      if (parsed.accessorio) {
+        const prodotto = prodottiMap[parsed.accessorio];
+        if (prodotto && voce.unita !== prodotto.unita) {
+          anomalie.push('unita_incompatibile');
+        }
+        
+        // Controllo quantità anomala
+        // Usa sogliaAnomalia dal prodotto se disponibile
+        if (prodotto && prodotto.sogliaAnomalia && voce.quantita > prodotto.sogliaAnomalia) {
+          anomalie.push('quantita_anomala');
+        }
+      }
+    } else if (parsed.isPrestazione) {
+      // Controllo prestazione che richiede prodotti
+      const prestazione = prestazioniMap[voce.codice];
+      if (prestazione && prestazioneRichiedeProdotti(voce.codice)) {
+        const prodottiTrovati = voci.filter(v => {
+          const p = parseCodiceFattura(v.codice);
+          return p.isProdotto && p.prestazione === voce.codice;
         });
-        if (!hasProdotti) {
+        
+        if (prodottiTrovati.length === 0) {
           anomalie.push('prestazione_incompleta');
         }
       }
       
-      // Verifica prestazione duplicata
+      // Controllo prestazione duplicata
       const duplicati = voci.filter(v => v.codice === voce.codice && v.id !== voce.id);
       if (duplicati.length > 0) {
         anomalie.push('prestazione_duplicata');
       }
     }
-    
-    // 4. Verifica unità incompatibile (per prodotti)
-    if (parsed.isProdotto && voce.unita) {
-      const prodotto = prodottiMap[parsed.accessorio || ''];
-      if (prodotto && prodotto.unita !== voce.unita) {
-        anomalie.push('unita_incompatibile');
-      }
-    }
-    
-    // 5. Verifica quantità anomala
-    if (parsed.isProdotto && voce.quantita) {
-      const prodotto = prodottiMap[parsed.accessorio || ''];
-      // Definiamo soglie di esempio (dovrebbero venire dalla configurazione)
-      const soglieAnomalie: Record<string, number> = {
-        'VEX': 3000,  // Vistabex max 3000 unità
-        'DYS': 1000,  // Dysport max 1000 unità
-        'ALL': 10,    // Allergan max 10 fiale
-        'XEO': 5      // Xeomin max 5 fiale
-      };
-      
-      const soglia = soglieAnomalie[parsed.accessorio || ''];
-      if (soglia && voce.quantita > soglia) {
-        anomalie.push('quantita_anomala');
-      }
-    }
 
     return anomalie;
-  };
+    };
+  }, [prodottiMap, prestazioniMap]);
 
-  // Calcola anomalie per fattura
-  const getAnomalieFattura = (fattura: FatturaConVoci) => {
+  // Calcola anomalie per fattura - Mossa prima di useMemo per evitare hoisting issues
+  const getAnomalieFattura = useMemo(() => {
+    return (fattura: FatturaConVoci) => {
     const anomalie: string[] = [];
     
     if (!fattura.medicoId) {
@@ -245,7 +191,85 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     }
     
     return [...new Set(anomalie)]; // Rimuovi duplicati
+    };
+  }, [prodottiMap, prestazioniMap, verificaAnomalieVoce]);
+  
+  // Aggiorna fatture con anomalie quando cambiano i props o le dipendenze
+  useEffect(() => {
+    const fattureConAnomalie = fattureProps.map(f => {
+      const anomalie = getAnomalieFattura(f);
+      const stato = anomalie.length > 0 ? 'anomalia' : (f.stato === 'importata' ? 'importata' : 'da_importare');
+      return { ...f, stato: stato as any, anomalie };
+    });
+    setFatture(fattureConAnomalie);
+  }, [fattureProps, getAnomalieFattura]);
+  
+  // Conteggio filtri attivi
+  const filtriAttivi = useMemo(() => {
+    let count = 0;
+    if (filtroStato !== 'tutti') count++;
+    if (filtroAnomalia !== 'tutte') count++;
+    if (filtroMedico !== 'tutti') count++;
+    if (filtroSerie !== 'tutte') count++;
+    if (filtroDataDa || filtroDataA) count++;
+    return count;
+  }, [filtroStato, filtroAnomalia, filtroMedico, filtroSerie, filtroDataDa, filtroDataA]);
+  
+  // Reset filtri
+  const resetFiltri = () => {
+    setFiltroStato('tutti');
+    setFiltroAnomalia('tutte');
+    setFiltroMedico('tutti');
+    setFiltroSerie('tutte');
+    setFiltroDataDa('');
+    setFiltroDataA('');
   };
+  
+  // Filtri applicati
+  const fattureFiltered = useMemo(() => {
+    return fatture.filter(f => {
+      // Filtro stato
+      if (filtroStato !== 'tutti' && f.stato !== filtroStato) return false;
+      
+      // Filtro anomalia
+      if (filtroAnomalia !== 'tutte') {
+        const anomalieFattura = getAnomalieFattura(f);
+        if (filtroAnomalia === 'senza_anomalie' && anomalieFattura.length > 0) return false;
+        if (filtroAnomalia !== 'senza_anomalie' && !anomalieFattura.includes(filtroAnomalia)) return false;
+      }
+      
+      // Filtro medico
+      if (filtroMedico !== 'tutti') {
+        if (filtroMedico === 'non_assegnato' && f.medicoId) return false;
+        if (filtroMedico !== 'non_assegnato' && f.medicoId?.toString() !== filtroMedico) return false;
+      }
+      
+      // Filtro serie
+      if (filtroSerie !== 'tutte' && f.serie !== filtroSerie) return false;
+      
+      // Filtro date
+      if (filtroDataDa || filtroDataA) {
+        const dataString = f.data || f.dataEmissione;
+        if (!dataString) return true;
+        
+        const dataFattura = new Date(dataString);
+        
+        if (filtroDataDa) {
+          const dataDa = new Date(filtroDataDa);
+          if (dataFattura < dataDa) return false;
+        }
+        
+        if (filtroDataA) {
+          const dataA = new Date(filtroDataA);
+          dataA.setHours(23, 59, 59, 999);
+          if (dataFattura > dataA) return false;
+        }
+      }
+      
+      return true;
+    });
+  }, [fatture, filtroStato, filtroDataDa, filtroDataA, filtroAnomalia, filtroMedico, filtroSerie, getAnomalieFattura]);
+
 
   // Toggle expanded
   const toggleExpanded = (fatturaId: number) => {
@@ -263,23 +287,15 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     return anomalie.length === 0;
   };
 
-  // Calcola stati count
-  const calcolaStatiCount = () => {
-    if (conteggiStati) return conteggiStati;
-    
+  // Calcola stati count sempre dalle fatture locali per avere i numeri aggiornati
+  const statiCount = useMemo(() => {
     return fatture.reduce((acc, f) => {
       const stato = f.stato || 'da_importare';
       acc[stato] = (acc[stato] || 0) + 1;
       return acc;
     }, {} as Record<string, number>);
-  };
+  }, [fatture]);
 
-  // Status delle serie
-  const serieStatus = {
-    principale: { count: fatture.filter(f => f.serie === 'principale').length, hasIssues: false },
-    IVA: { count: fatture.filter(f => f.serie === 'IVA').length, hasIssues: false },
-    CASSA: { count: fatture.filter(f => f.serie === 'CASSA').length, hasIssues: false }
-  };
 
   // Gestione selezione
   const handleSelectAll = (checked: boolean) => {
@@ -300,20 +316,28 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   // Assegna medico
   const handleAssignMedico = (medicoId: number, medicoNome: string) => {
-    const fattureToUpdate = fatture.filter(f => selectedFatture.includes(f.id));
-    
-    fattureToUpdate.forEach(fattura => {
-      if (onUpdateFattura) {
-        onUpdateFattura(fattura.id, { medicoId, medicoNome });
+    setFatture(fatture.map(f => {
+      if (selectedFatture.includes(f.id)) {
+        // Rimuovi anomalia medico_mancante se presente
+        const nuoveAnomalie = (f.anomalie || []).filter(a => a !== 'medico_mancante');
+        const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
+        
+        const updatedFattura = { 
+          ...f, 
+          medicoId, 
+          medicoNome, 
+          anomalie: nuoveAnomalie,
+          stato: stato as any 
+        };
+        
+        if (onUpdateFattura) {
+          onUpdateFattura(f.id, updatedFattura);
+        }
+        
+        return updatedFattura;
       }
-    });
-    
-    // Update locale
-    setFatture(fatture.map(f => 
-      selectedFatture.includes(f.id) 
-        ? { ...f, medicoId, medicoNome, stato: 'verificata' }
-        : f
-    ));
+      return f;
+    }));
     
     setSelectedFatture([]);
     setShowAssignMedico(false);
@@ -333,7 +357,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         // Ricalcola totali
         const totaleNetto = voci.reduce((sum, v) => sum + (v.importoNetto || 0), 0);
         const anomalie = getAnomalieFattura({ ...f, voci });
-        const stato = anomalie.length === 0 && f.medicoId ? 'verificata' : 'anomalia';
+        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
         
         return { ...f, voci, imponibile: totaleNetto, totale: totaleNetto * 1.22, stato: stato as any };
       }
@@ -347,7 +371,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         const voci = f.voci.filter(v => v.id !== voceId);
         const totaleNetto = voci.reduce((sum, v) => sum + (v.importoNetto || 0), 0);
         const anomalie = getAnomalieFattura({ ...f, voci });
-        const stato = anomalie.length === 0 && f.medicoId ? 'verificata' : 'anomalia';
+        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
         
         return { 
           ...f, 
@@ -382,7 +406,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         const voci = [...f.voci, nuovaVoce];
         const totaleNetto = voci.reduce((sum, v) => sum + (v.importoNetto || 0), 0);
         const anomalie = getAnomalieFattura({ ...f, voci });
-        const stato = anomalie.length === 0 && f.medicoId ? 'verificata' : 'anomalia';
+        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
         
         return {
           ...f,
@@ -425,7 +449,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
         const voci = [...f.voci, ...nuoveVoci];
         const anomalie = getAnomalieFattura({ ...f, voci });
-        const stato = anomalie.length === 0 && f.medicoId ? 'verificata' : 'anomalia';
+        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
         
         return {
           ...f,
@@ -441,34 +465,152 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   // Handler per correggere unità di misura
   const handleCorreggiUnita = (fatturaId: number, voceId: number, unitaCorretta: string) => {
-    if (onUpdateFattura) {
-      onUpdateFattura(fatturaId, {
-        voci: fatture.find(f => f.id === fatturaId)?.voci?.map(v => 
+    setFatture(fatture.map(f => {
+      if (f.id === fatturaId && f.voci) {
+        const voci = f.voci.map(v => 
           v.id === voceId ? { ...v, unita: unitaCorretta } : v
-        )
-      });
-    }
+        );
+        
+        const anomalie = getAnomalieFattura({ ...f, voci });
+        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
+        
+        const updatedFattura = { ...f, voci, anomalie, stato: stato as any };
+        
+        if (onUpdateFattura) {
+          onUpdateFattura(fatturaId, updatedFattura);
+        }
+        
+        return updatedFattura;
+      }
+      return f;
+    }));
   };
 
   // Handler per correggere quantità
   const handleCorreggiQuantita = (fatturaId: number, voceId: number, nuovaQuantita: number) => {
-    if (onUpdateFattura) {
-      onUpdateFattura(fatturaId, {
-        voci: fatture.find(f => f.id === fatturaId)?.voci?.map(v => 
+    setFatture(fatture.map(f => {
+      if (f.id === fatturaId && f.voci) {
+        const voci = f.voci.map(v => 
           v.id === voceId ? { ...v, quantita: nuovaQuantita } : v
-        )
-      });
-    }
+        );
+        
+        const anomalie = getAnomalieFattura({ ...f, voci });
+        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
+        
+        const updatedFattura = { ...f, voci, anomalie, stato: stato as any };
+        
+        if (onUpdateFattura) {
+          onUpdateFattura(fatturaId, updatedFattura);
+        }
+        
+        return updatedFattura;
+      }
+      return f;
+    }));
     setQuantitaTemp(null);
   };
 
-  // Genera fatture di test con anomalie
-  const handleGenerateTestData = () => {
-    if (onRegenerate && confirm('Vuoi generare 50 fatture di test con anomalie? Questo sostituirà i dati attuali.')) {
-      onRegenerate({ numeroFatture: 50, scenario: 'test-anomalie' });
-      setTimeout(() => window.location.reload(), 100);
-    }
+  // Handler per approvare quantità anomala
+  const handleApprovaQuantitaAnomala = (fatturaId: number, voceId: number) => {
+    setFatture(fatture.map(f => {
+      if (f.id === fatturaId && f.voci) {
+        const voci = f.voci.map(v => {
+          if (v.id === voceId) {
+            // Rimuovi l'anomalia quantita_anomala dalla voce
+            const anomalieFiltrate = v.anomalie.filter(a => a !== 'quantita_anomala');
+            return { ...v, anomalie: anomalieFiltrate };
+          }
+          return v;
+        });
+        
+        // Ricalcola le anomalie della fattura
+        const anomalie = getAnomalieFattura({ ...f, voci });
+        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
+        
+        const updatedFattura = { ...f, voci, anomalie, stato: stato as any };
+        
+        if (onUpdateFattura) {
+          onUpdateFattura(fatturaId, updatedFattura);
+        }
+        
+        return updatedFattura;
+      }
+      return f;
+    }));
   };
+
+  // Handler per correggere codice
+  const handleCorreggiCodice = (fatturaId: number, voceId: number, nuovoCodice: string) => {
+    setFatture(fatture.map(f => {
+      if (f.id === fatturaId && f.voci) {
+        const voci = f.voci.map(v => {
+          if (v.id === voceId) {
+            let nuovaDescrizione = v.descrizione;
+            let nuovoTipo: 'prestazione' | 'prodotto' = v.tipo || 'prestazione';
+            
+            // Prima cerca nelle combinazioni per capire il tipo
+            const combinazione = combinazioni.find(c => c.codice === nuovoCodice);
+            
+            if (combinazione) {
+              if (combinazione.tipo === 'prestazione') {
+                // È una prestazione semplice
+                const prestazione = prestazioniMap[combinazione.prestazione!];
+                if (prestazione) {
+                  nuovaDescrizione = prestazione.descrizione;
+                  nuovoTipo = 'prestazione';
+                }
+              } else if (combinazione.tipo === 'prestazione+prodotto') {
+                // È un prodotto
+                const prestazione = prestazioniMap[combinazione.prestazione!];
+                const prodotto = prodottiMap[combinazione.accessorio!];
+                if (prestazione && prodotto) {
+                  nuovaDescrizione = `${prestazione.descrizione} - ${prodotto.nome}`;
+                  nuovoTipo = 'prodotto';
+                }
+              } else if (combinazione.tipo === 'prestazione+macchinario') {
+                // È un macchinario
+                const prestazione = prestazioniMap[combinazione.prestazione!];
+                const macchinario = macchinari.find(m => m.codice === combinazione.accessorio);
+                if (prestazione && macchinario) {
+                  nuovaDescrizione = `${prestazione.descrizione} - ${macchinario.nome}`;
+                  nuovoTipo = 'prestazione'; // I macchinari sono trattati come prestazioni
+                }
+              }
+            }
+            
+            return { ...v, codice: nuovoCodice, descrizione: nuovaDescrizione, tipo: nuovoTipo };
+          }
+          return v;
+        });
+        
+        // Ricalcola importi se necessario
+        const totaleNetto = voci.reduce((sum, v) => sum + (v.importoNetto || 0), 0);
+        const totaleIva = totaleNetto * 0.22;
+        
+        const anomalie = getAnomalieFattura({ ...f, voci });
+        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
+        
+        const updatedFattura = { 
+          ...f, 
+          voci, 
+          anomalie, 
+          stato: stato as any,
+          imponibile: totaleNetto,
+          iva: totaleIva,
+          totale: totaleNetto + totaleIva
+        };
+        
+        if (onUpdateFattura) {
+          onUpdateFattura(fatturaId, updatedFattura);
+        }
+        
+        return updatedFattura;
+      }
+      return f;
+    }));
+    setShowCorreggiCodiceModal(null);
+  };
+
 
   // Sync con Fatture in Cloud
   const handleSync = async () => {
@@ -522,7 +664,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       
       const count = fattureImportabili.length;
       const fattureImportate = fatture.filter(f => fattureImportabili.includes(f.id));
-      const nuove = fattureImportate.filter(f => f.stato === 'verificata').length;
+      const nuove = fattureImportate.filter(f => f.stato === 'da_importare').length;
       const aggiornate = count - nuove;
       
       // Update stato fatture
@@ -540,7 +682,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   };
 
   // Renderizza anomalie
-  const renderAnomalie = (anomalie: string[]) => {
+  const renderAnomalie = (anomalie: string[], fatturaId?: number) => {
     const anomalieMap: Record<string, { label: string; color: string; icon: any }> = {
       'medico_mancante': { label: 'Medico mancante', color: 'text-red-600', icon: AlertCircle },
       'prodotto_con_prezzo': { label: 'Prodotto con prezzo', color: 'text-amber-600', icon: AlertTriangle },
@@ -560,13 +702,41 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           
           const Icon = config.icon;
           return (
-            <span 
-              key={idx}
-              className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-gray-100 ${config.color}`}
-            >
-              <Icon className="w-3 h-3" />
-              {config.label}
-            </span>
+            <div key={idx} className="flex items-center gap-2">
+              <span 
+                className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-gray-100 ${config.color}`}
+              >
+                <Icon className="w-3 h-3" />
+                {config.label}
+              </span>
+              {anomalia === 'medico_mancante' && fatturaId && (
+                <select
+                  className="text-xs border border-gray-300 rounded px-2 py-1"
+                  onChange={(e) => {
+                    const medicoId = parseInt(e.target.value);
+                    if (medicoId && onUpdateFattura) {
+                      const medico = medici.find(m => m.id === medicoId);
+                      if (medico) {
+                        const nuoveAnomalie = anomalie.filter(a => a !== 'medico_mancante');
+                        onUpdateFattura(fatturaId, { 
+                          medicoId, 
+                          medicoNome: `${medico.nome} ${medico.cognome}`,
+                          anomalie: nuoveAnomalie,
+                          stato: nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare'
+                        });
+                      }
+                    }
+                  }}
+                >
+                  <option value="">Seleziona medico...</option>
+                  {medici.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.nome} {m.cognome}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
           );
         })}
       </div>
@@ -582,12 +752,77 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   const totalPages = Math.ceil(fattureFiltered.length / itemsPerPage);
 
-  // Calcola totali pagina
-  const totalsPagina = paginatedFatture.reduce((acc, fattura) => ({
-    lordo: acc.lordo + (fattura.totale || 0),
-    netto: acc.netto + (fattura.imponibile || 0),
-    iva: acc.iva + (fattura.iva || 0)
-  }), { lordo: 0, netto: 0, iva: 0 });
+  // Calcola riepilogo dati
+  const riepilogoMensile = useMemo(() => {
+    const totaleFatture = fatture.length;
+    const totaleImportate = fatture.filter(f => f.stato === 'importata').length;
+    
+    const totali = fatture.reduce((acc, f) => {
+      const imponibile = f.imponibile || 0;
+      const serie = f.serie || 'P';
+      
+      // Calcola IVA in base alla serie - Solo serie "IVA" ha l'IVA
+      const iva = (serie === 'IVA') ? imponibile * 0.22 : 0;
+      const lordo = imponibile + iva;
+      
+      return {
+        imponibile: acc.imponibile + imponibile,
+        iva: acc.iva + iva,
+        lordo: acc.lordo + lordo
+      };
+    }, { imponibile: 0, iva: 0, lordo: 0 });
+    
+    // Riepilogo per medico
+    const perMedico = fatture.reduce((acc, f) => {
+      const medico = f.medicoNome || 'Non assegnato';
+      const imponibile = f.imponibile || 0;
+      const serie = f.serie || 'P';
+      
+      // Calcola IVA in base alla serie - Solo serie "IVA" ha l'IVA
+      const iva = (serie === 'IVA') ? imponibile * 0.22 : 0;
+      const lordo = imponibile + iva;
+      
+      if (!acc[medico]) {
+        acc[medico] = { count: 0, imponibile: 0, iva: 0, lordo: 0 };
+      }
+      acc[medico].count++;
+      acc[medico].imponibile += imponibile;
+      acc[medico].iva += iva;
+      acc[medico].lordo += lordo;
+      return acc;
+    }, {} as Record<string, { count: number; imponibile: number; iva: number; lordo: number }>);
+    
+    // Riepilogo per serie
+    const perSerie = fatture.reduce((acc, f) => {
+      const serie = f.serie || 'P';
+      if (!acc[serie]) {
+        acc[serie] = { count: 0, imponibile: 0, iva: 0, lordo: 0 };
+      }
+      acc[serie].count++;
+      acc[serie].imponibile += f.imponibile || 0;
+      
+      // Solo serie "IVA" ha l'IVA 22%
+      if (serie === 'IVA') {
+        const ivaCalcolata = (f.imponibile || 0) * 0.22;
+        acc[serie].iva += ivaCalcolata;
+        acc[serie].lordo += (f.imponibile || 0) + ivaCalcolata;
+      } else {
+        // Serie P e M sono esenti IVA
+        acc[serie].iva += 0;
+        acc[serie].lordo += f.imponibile || 0; // Lordo = Imponibile per serie esente
+      }
+      
+      return acc;
+    }, {} as Record<string, { count: number; imponibile: number; iva: number; lordo: number }>);
+    
+    return {
+      totaleFatture,
+      totaleImportate,
+      totali,
+      perMedico,
+      perSerie
+    };
+  }, [fatture]);
 
   // Export functions
   const handleExportSelected = () => {
@@ -612,48 +847,66 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     console.log('Exporting CSV:', csv);
   };
 
-  const handleExportDettaglio = () => {
-    const allRows: any[] = [];
-    
-    fatture.forEach(fattura => {
-      // Riga fattura
-      allRows.push({
-        tipo: 'fattura',
-        numero: fattura.numero,
-        data: fattura.data,
-        paziente: fattura.paziente,
-        medico: fattura.medicoNome || '',
-        descrizione: '',
-        quantita: '',
-        unita: '',
-        importoNetto: fattura.imponibile,
-        importoIva: fattura.iva,
-        importoLordo: fattura.totale,
-        stato: fattura.stato
-      });
-      
-      // Righe voci
-      if (fattura.voci) {
-        fattura.voci.forEach((voce: any) => {
-          allRows.push({
-            tipo: 'voce',
-            numero: fattura.numero,
-            data: fattura.data,
-            paziente: '',
-            medico: '',
-            descrizione: voce.descrizione,
-            quantita: voce.quantita || '',
-            unita: voce.unita || '',
-            importoNetto: voce.importoNetto || 0,
-            importoIva: 0,
-            importoLordo: voce.importoNetto * 1.22,
-            stato: voce.anomalie?.length > 0 ? 'anomalia' : ''
-          });
-        });
-      }
-    });
-    
-    console.log('Exporting detailed:', allRows);
+  // Funzione non utilizzata - commentata
+  // const handleExportDettaglio = () => {
+  //   const allRows: any[] = [];
+  //   
+  //   fatture.forEach(fattura => {
+  //     // Riga fattura
+  //     allRows.push({
+  //       tipo: 'fattura',
+  //       numero: fattura.numero,
+  //       data: fattura.data,
+  //       paziente: fattura.paziente,
+  //       medico: fattura.medicoNome || '',
+  //       descrizione: '',
+  //       quantita: '',
+  //       unita: '',
+  //       importoNetto: fattura.imponibile,
+  //       importoIva: fattura.iva,
+  //       importoLordo: fattura.totale,
+  //       stato: fattura.stato
+  //     });
+  //     
+  //     // Righe voci
+  //     if (fattura.voci) {
+  //       fattura.voci.forEach((voce: any) => {
+  //         allRows.push({
+  //           tipo: 'voce',
+  //           numero: fattura.numero,
+  //           data: fattura.data,
+  //           paziente: '',
+  //           medico: '',
+  //           descrizione: voce.descrizione,
+  //           quantita: voce.quantita || '',
+  //           unita: voce.unita || '',
+  //           importoNetto: voce.importoNetto || 0,
+  //           importoIva: 0,
+  //           importoLordo: voce.importoNetto * 1.22,
+  //           stato: voce.anomalie?.length > 0 ? 'anomalia' : ''
+  //         });
+  //       });
+  //     }
+  //   });
+  //   
+  //   console.log('Exporting detailed:', allRows);
+  // };
+
+  // Render stato badge - Definita prima dell'uso
+  const renderStatoBadge = (stato: string) => {
+    const stateConfig: Record<string, { color: string; label: string }> = {
+      'da_importare': { color: 'bg-gray-100 text-gray-800', label: 'Da importare' },
+      'anomalia': { color: 'bg-red-100 text-red-800', label: 'Anomalia' },
+      'importata': { color: 'bg-blue-100 text-blue-800', label: 'Importata' }
+    };
+
+    const config = stateConfig[stato] || stateConfig['da_importare'];
+
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}>
+        {config.label}
+      </span>
+    );
   };
 
   // Render table rows
@@ -807,6 +1060,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                               )}
                               {anomalieVoce.includes('quantita_anomala') && (
                                 <div className="flex items-center gap-1">
+                                  <span className="text-xs text-gray-600">
+                                    Soglia: {parsed.accessorio ? prodottiMap[parsed.accessorio]?.sogliaAnomalia : 'n/a'}
+                                  </span>
                                   <input
                                     type="number"
                                     defaultValue={voce.quantita}
@@ -819,7 +1075,21 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                                   >
                                     Correggi
                                   </button>
+                                  <button
+                                    onClick={() => handleApprovaQuantitaAnomala(fattura.id, voce.id)}
+                                    className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                                  >
+                                    Approva
+                                  </button>
                                 </div>
+                              )}
+                              {anomalieVoce.includes('codice_sconosciuto') && (
+                                <button
+                                  onClick={() => setShowCorreggiCodiceModal({ fatturaId: fattura.id, voceId: voce.id, codiceAttuale: voce.codice })}
+                                  className="px-2 py-1 text-xs bg-red-700 text-white rounded hover:bg-red-800"
+                                >
+                                  Correggi codice
+                                </button>
                               )}
                             </div>
                           </div>
@@ -862,6 +1132,11 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     const isExpanded = expandedFatture.includes(fattura.id);
     const canImport = canImportFattura(fattura);
     
+    // Debug: verifica coerenza stato/anomalie
+    if (fattura.stato === 'anomalia' && !hasAnomalie) {
+      console.warn(`Fattura ${fattura.numero} ha stato 'anomalia' ma nessuna anomalia rilevata`);
+    }
+    
     return (
       <React.Fragment key={fattura.id}>
         <tr className={`hover:bg-gray-50 ${indented ? 'pl-8' : ''}`}>
@@ -870,8 +1145,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               type="checkbox"
               checked={selectedFatture.includes(fattura.id)}
               onChange={() => handleSelectFattura(fattura.id)}
-              disabled={fattura.stato === 'importata'}
-              className="rounded border-gray-300 text-[#03A6A6] focus:ring-[#03A6A6]"
+              disabled={fattura.stato === 'importata' || hasAnomalie}
+              className="rounded border-gray-300 text-[#03A6A6] focus:ring-[#03A6A6] disabled:opacity-50 disabled:cursor-not-allowed"
+              title={hasAnomalie ? 'Non selezionabile - correggere anomalie prima dell\'importazione' : ''}
             />
           </td>
           <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -900,7 +1176,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
             <div>
               <div className="font-medium text-gray-900">€ {fattura.imponibile.toFixed(2)}</div>
-              <div className="text-xs text-gray-500">+IVA € {(fattura.iva || fattura.imponibile * 0.22).toFixed(2)}</div>
+              {fattura.serie === 'IVA' && (
+                <div className="text-xs text-gray-500">+IVA € {(fattura.iva || 0).toFixed(2)}</div>
+              )}
             </div>
           </td>
           <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
@@ -909,7 +1187,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           <td className="px-6 py-4 whitespace-nowrap">
             <div className="flex flex-col gap-1">
               {renderStatoBadge(fattura.stato || 'da_importare')}
-              {hasAnomalie && renderAnomalie(anomalie)}
+              {hasAnomalie && renderAnomalie(anomalie, fattura.id)}
             </div>
           </td>
           <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -933,22 +1211,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     );
   };
 
-  const renderStatoBadge = (stato: string) => {
-    const stateConfig: Record<string, { color: string; label: string }> = {
-      'da_importare': { color: 'bg-gray-100 text-gray-800', label: 'Da importare' },
-      'verificata': { color: 'bg-green-100 text-green-800', label: 'Verificata' },
-      'anomalia': { color: 'bg-red-100 text-red-800', label: 'Anomalia' },
-      'importata': { color: 'bg-blue-100 text-blue-800', label: 'Importata' }
-    };
-
-    const config = stateConfig[stato] || stateConfig['da_importare'];
-
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}>
-        {config.label}
-      </span>
-    );
-  };
 
   // Loading state
   if (isLoading) {
@@ -962,6 +1224,174 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     );
   }
 
+  // Modal per aggiungere prodotti
+  const ModalAggiungiProdotti: React.FC<{
+    prestazione: string;
+    prodottiDisponibili: Prodotto[];
+    onConfirm: (prodotti: { codice: string; quantita: number }[]) => void;
+    onCancel: () => void;
+  }> = ({ prestazione, prodottiDisponibili, onConfirm, onCancel }) => {
+    const [prodottiSelezionati, setProdottiSelezionati] = useState<{ codice: string; quantita: number }[]>([]);
+
+    const handleToggleProdotto = (codice: string) => {
+      const exists = prodottiSelezionati.find(p => p.codice === codice);
+      if (exists) {
+        setProdottiSelezionati(prodottiSelezionati.filter(p => p.codice !== codice));
+      } else {
+        setProdottiSelezionati([...prodottiSelezionati, { codice, quantita: 1 }]);
+      }
+    };
+
+    const handleQuantitaChange = (codice: string, quantita: number) => {
+      setProdottiSelezionati(prodottiSelezionati.map(p => 
+        p.codice === codice ? { ...p, quantita } : p
+      ));
+    };
+
+    return (
+      <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Aggiungi prodotti per la prestazione {prestazione}
+          </h3>
+          
+          <div className="space-y-3">
+            {prodottiDisponibili.map(prodotto => {
+              const isSelected = prodottiSelezionati.some(p => p.codice === prodotto.codice);
+              const selectedProdotto = prodottiSelezionati.find(p => p.codice === prodotto.codice);
+              
+              return (
+                <div 
+                  key={prodotto.codice}
+                  className={`p-4 rounded-lg border ${isSelected ? 'border-[#03A6A6] bg-blue-50' : 'border-gray-200'}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => handleToggleProdotto(prodotto.codice)}
+                        className="rounded border-gray-300 text-[#03A6A6] focus:ring-[#03A6A6]"
+                      />
+                      <div>
+                        <p className="font-medium">{prodotto.nome}</p>
+                        <p className="text-sm text-gray-600">
+                          Codice: {prodotto.codice} • €{(prodotto as any).prezzoDefault || 0}/€{(prodotto as any).prezzoBase || 0} per {prodotto.unita}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {isSelected && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm text-gray-600">Quantità:</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={selectedProdotto?.quantita || 1}
+                          onChange={(e) => handleQuantitaChange(prodotto.codice, parseInt(e.target.value) || 1)}
+                          className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
+                        />
+                        <span className="text-sm text-gray-600">{prodotto.unita}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 flex justify-end gap-3">
+            <button
+              onClick={onCancel}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+            >
+              Annulla
+            </button>
+            <button
+              onClick={() => onConfirm(prodottiSelezionati)}
+              disabled={prodottiSelezionati.length === 0}
+              className="px-4 py-2 text-sm bg-[#03A6A6] text-white rounded-lg hover:bg-[#028a8a] disabled:opacity-50"
+            >
+              Aggiungi {prodottiSelezionati.length} prodott{prodottiSelezionati.length === 1 ? 'o' : 'i'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Modal per correggere codice
+  const ModalCorreggiCodice: React.FC<{
+    codiceAttuale: string;
+    onConfirm: (nuovoCodice: string) => void;
+    onCancel: () => void;
+  }> = ({ codiceAttuale, onConfirm, onCancel }) => {
+    const [nuovoCodice, setNuovoCodice] = useState(codiceAttuale);
+    
+    const isValidCode = (code: string) => {
+      // Confronta il codice completo, non rimuovere la cifra iniziale
+      return combinazioni.some(c => c.codice === code);
+    };
+    
+    return (
+      <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 max-w-xl w-full">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Correggi codice non valido
+          </h3>
+          
+          <div className="mb-4">
+            <p className="text-sm text-gray-600 mb-2">
+              Codice attuale: <span className="font-mono font-medium text-red-600">{codiceAttuale}</span>
+            </p>
+            <p className="text-sm text-gray-500">
+              Il codice non è presente nel database. Inserisci un codice valido.
+            </p>
+          </div>
+          
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Nuovo codice
+            </label>
+            <input
+              type="text"
+              value={nuovoCodice}
+              onChange={(e) => setNuovoCodice(e.target.value.toUpperCase())}
+              className={`w-full px-3 py-2 border rounded-lg text-sm font-mono ${
+                isValidCode(nuovoCodice) 
+                  ? 'border-green-500 focus:ring-green-500' 
+                  : 'border-gray-300 focus:ring-[#03A6A6]'
+              } focus:border-transparent focus:ring-2`}
+              placeholder="Es: RT, RTGG01, EM..."
+            />
+            {nuovoCodice && (
+              <p className={`mt-1 text-xs ${isValidCode(nuovoCodice) ? 'text-green-600' : 'text-red-600'}`}>
+                {isValidCode(nuovoCodice) ? '✓ Codice valido' : '✗ Codice non trovato nel database'}
+              </p>
+            )}
+          </div>
+          
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={onCancel}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+            >
+              Annulla
+            </button>
+            <button
+              onClick={() => onConfirm(nuovoCodice)}
+              disabled={!isValidCode(nuovoCodice)}
+              className="px-4 py-2 text-sm bg-[#03A6A6] text-white rounded-lg hover:bg-[#028a8a] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Applica correzione
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+  
+  // Render principale del componente ImportFatture
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -980,6 +1410,19 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                 <span>Ultima sincronizzazione: </span>
                 <span className="font-medium">{lastSync}</span>
               </div>
+              {process.env.NODE_ENV === 'development' && (
+                <button
+                  onClick={() => {
+                    if (onRegenerate && confirm('Vuoi generare 200 fatture di test (56 con anomalie, 7 per tipo)? Questo sostituirà i dati attuali.')) {
+                      onRegenerate('test-anomalie');
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Reset Demo
+                </button>
+              )}
               <button
                 onClick={handleSync}
                 disabled={isSyncing}
@@ -988,14 +1431,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                 <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
                 {isSyncing ? 'Sincronizzazione...' : 'Sincronizza ora'}
               </button>
-              <button
-                onClick={handleGenerateTestData}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                title="Genera 50 fatture con anomalie per test"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                Test Anomalie
-              </button>
             </div>
           </div>
         </div>
@@ -1003,14 +1438,12 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
       {/* Stati Overview */}
       <div className="px-6 py-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {[
             { key: 'da_importare', label: 'Da importare', color: 'bg-gray-100 text-gray-800' },
-            { key: 'verificata', label: 'Verificate', color: 'bg-green-100 text-green-800' },
             { key: 'anomalia', label: 'Con anomalie', color: 'bg-red-100 text-red-800' },
             { key: 'importata', label: 'Importate', color: 'bg-blue-100 text-blue-800' }
           ].map(stato => {
-            const statiCount = calcolaStatiCount();
             const count = (statiCount as any)[stato.key] || 0;
             return (
               <button
@@ -1080,8 +1513,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       {/* Filters and Actions */}
       <div className="px-6 pb-4">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+          <div className="flex flex-col gap-4">
+            {/* Prima riga: Filtri principali */}
+            <div className="flex items-center gap-3 flex-wrap">
               <select
                 value={filtroStato}
                 onChange={(e) => setFiltroStato(e.target.value)}
@@ -1089,9 +1523,50 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               >
                 <option value="tutti">Tutti gli stati</option>
                 <option value="da_importare">Da importare</option>
-                <option value="verificata">Verificate</option>
                 <option value="anomalia">Con anomalie</option>
                 <option value="importata">Importate</option>
+              </select>
+              
+              <select
+                value={filtroAnomalia}
+                onChange={(e) => setFiltroAnomalia(e.target.value)}
+                className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
+              >
+                <option value="tutte">Tutte le anomalie</option>
+                <option value="senza_anomalie">Senza anomalie</option>
+                <option value="medico_mancante">Medico mancante</option>
+                <option value="prodotto_con_prezzo">Prodotto con prezzo</option>
+                <option value="prodotto_orfano">Prodotto orfano</option>
+                <option value="prestazione_incompleta">Prestazione incompleta</option>
+                <option value="prestazione_duplicata">Prestazione duplicata</option>
+                <option value="codice_sconosciuto">Codice sconosciuto</option>
+                <option value="unita_incompatibile">Unità incompatibile</option>
+                <option value="quantita_anomala">Quantità anomala</option>
+              </select>
+              
+              <select
+                value={filtroMedico}
+                onChange={(e) => setFiltroMedico(e.target.value)}
+                className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
+              >
+                <option value="tutti">Tutti i medici</option>
+                <option value="non_assegnato">Non assegnato</option>
+                {medici.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.nome} {m.cognome}
+                  </option>
+                ))}
+              </select>
+              
+              <select
+                value={filtroSerie}
+                onChange={(e) => setFiltroSerie(e.target.value)}
+                className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
+              >
+                <option value="tutte">Tutte le serie</option>
+                <option value="P">Serie P (Principale)</option>
+                <option value="IVA">Serie IVA</option>
+                <option value="M">Serie M (Milano)</option>
               </select>
               
               <div className="flex items-center gap-2">
@@ -1128,6 +1603,19 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                 />
               </div>
               
+              {filtriAttivi > 0 && (
+                <button
+                  onClick={resetFiltri}
+                  className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-2"
+                >
+                  <X className="w-4 h-4" />
+                  Reset filtri ({filtriAttivi})
+                </button>
+              )}
+            </div>
+            
+            {/* Seconda riga: Azioni e vista */}
+            <div className="flex items-center justify-between">
               <button
                 onClick={() => setVistaRaggruppata(!vistaRaggruppata)}
                 className={`px-3 py-2 text-sm rounded-lg border flex items-center gap-2 ${
@@ -1139,7 +1627,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                 <Users className="w-4 h-4" />
                 Raggruppa per medico
               </button>
-            </div>
             
             <div className="flex items-center gap-2">
               {selectedFatture.length > 0 && (
@@ -1169,13 +1656,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                   </button>
                 </>
               )}
-              
-              <button
-                onClick={handleExportDettaglio}
-                className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-              </button>
+            </div>
             </div>
           </div>
         </div>
@@ -1225,20 +1706,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               <tbody className="bg-white divide-y divide-gray-200">
                 {renderTableRows()}
               </tbody>
-              <tfoot className="bg-gray-50">
-                <tr>
-                  <td colSpan={5} className="px-6 py-3 text-sm font-medium text-gray-900">
-                    Totali pagina
-                  </td>
-                  <td className="px-6 py-3 text-right text-sm font-medium text-gray-900">
-                    € {totalsPagina.netto.toFixed(2)}
-                  </td>
-                  <td className="px-6 py-3 text-right text-sm font-medium text-gray-900">
-                    € {totalsPagina.lordo.toFixed(2)}
-                  </td>
-                  <td colSpan={3}></td>
-                </tr>
-              </tfoot>
             </table>
           </div>
           
@@ -1312,27 +1779,170 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         </div>
       </div>
 
-      {/* Serie Status */}
-      <div className="px-6 py-4">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-3">Stato Serie</h3>
-          <div className="grid grid-cols-3 gap-4">
-            {Object.entries(serieStatus).map(([serie, status]) => (
-              <div key={serie} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm font-medium text-gray-700">{serie}</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-600">{status.count} fatture</span>
-                  {status.hasIssues ? (
-                    <AlertCircle className="w-4 h-4 text-amber-500" />
-                  ) : (
-                    <Check className="w-4 h-4 text-green-500" />
-                  )}
+      {/* Riepilogo Mensile */}
+      <div className="px-6 py-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-6">Riepilogo Mensile</h3>
+          
+          {/* Totali Generali */}
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Totale Fatture</p>
+                  <p className="text-2xl font-bold text-gray-900">{riepilogoMensile.totaleFatture}</p>
+                </div>
+                <div className="p-3 bg-gray-200 rounded-full">
+                  <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
                 </div>
               </div>
-            ))}
+            </div>
+            
+            <div className="bg-blue-50 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-blue-600">Importate</p>
+                  <p className="text-2xl font-bold text-blue-900">{riepilogoMensile.totaleImportate}</p>
+                </div>
+                <div className="p-3 bg-blue-200 rounded-full">
+                  <Check className="w-6 h-6 text-blue-600" />
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-green-50 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-green-600">Imponibile</p>
+                  <p className="text-2xl font-bold text-green-900">€ {riepilogoMensile.totali.imponibile.toFixed(2)}</p>
+                </div>
+                <div className="p-3 bg-green-200 rounded-full">
+                  <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-yellow-50 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-yellow-600">IVA</p>
+                  <p className="text-2xl font-bold text-yellow-900">€ {riepilogoMensile.totali.iva.toFixed(2)}</p>
+                </div>
+                <div className="p-3 bg-yellow-200 rounded-full">
+                  <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-purple-50 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-purple-600">Lordo Totale</p>
+                  <p className="text-2xl font-bold text-purple-900">€ {riepilogoMensile.totali.lordo.toFixed(2)}</p>
+                </div>
+                <div className="p-3 bg-purple-200 rounded-full">
+                  <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {/* Filtri Riepilogo */}
+          <div className="flex gap-4 mb-4">
+            <select
+              value={filtroRiepilogoMedico}
+              onChange={(e) => setFiltroRiepilogoMedico(e.target.value)}
+              className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
+            >
+              <option value="tutti">Tutti i medici</option>
+              {Object.keys(riepilogoMensile.perMedico).map(medico => (
+                <option key={medico} value={medico}>{medico}</option>
+              ))}
+            </select>
+            
+            <select
+              value={filtroRiepilogoSerie}
+              onChange={(e) => setFiltroRiepilogoSerie(e.target.value)}
+              className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
+            >
+              <option value="tutte">Tutte le serie</option>
+              {Object.keys(riepilogoMensile.perSerie).map(serie => (
+                <option key={serie} value={serie}>Serie {serie}</option>
+              ))}
+            </select>
+          </div>
+          
+          {/* Riepilogo Dettagliato */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Per Medico */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-3">Riepilogo per Medico</h4>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {Object.entries(riepilogoMensile.perMedico)
+                  .filter(([medico]) => filtroRiepilogoMedico === 'tutti' || medico === filtroRiepilogoMedico)
+                  .sort(([, a], [, b]) => b.lordo - a.lordo)
+                  .map(([medico, dati]) => (
+                    <div key={medico} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900">{medico}</p>
+                        <p className="text-sm text-gray-600">{dati.count} fatture</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-medium text-gray-900">€ {dati.lordo.toFixed(2)}</p>
+                        <p className="text-xs text-gray-500">Netto: € {dati.imponibile.toFixed(2)}</p>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+            
+            {/* Per Serie */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-3">Riepilogo per Serie</h4>
+              <div className="space-y-2">
+                {Object.entries(riepilogoMensile.perSerie)
+                  .filter(([serie]) => filtroRiepilogoSerie === 'tutte' || serie === filtroRiepilogoSerie)
+                  .map(([serie, dati]) => (
+                    <div key={serie} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900">Serie {serie.toUpperCase()}</p>
+                        <p className="text-sm text-gray-600">{dati.count} fatture</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-medium text-gray-900">€ {dati.lordo.toFixed(2)}</p>
+                        <p className="text-xs text-gray-500">IVA: € {dati.iva.toFixed(2)}</p>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Footer */}
+      <footer className="bg-gray-50 border-t border-gray-200 mt-8">
+        <div className="px-6 py-4">
+          <div className="flex items-center justify-between text-sm text-gray-600">
+            <div>
+              <p>Sistema Import Fatture Poliestetica v1.0</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <span>© 2024 Poliestetica</span>
+              <span className="text-gray-400">•</span>
+              <span>Ultimo aggiornamento: {new Date().toLocaleDateString('it-IT')}</span>
+            </div>
+          </div>
+        </div>
+      </footer>
 
       {/* Modals */}
       {showAssignMedico && (
@@ -1348,7 +1958,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                   onClick={() => handleAssignMedico(m.id, `${m.nome} ${m.cognome}`)}
                   className="w-full text-left px-4 py-3 rounded-lg border border-gray-200 hover:bg-gray-50 hover:border-[#03A6A6] transition-colors"
                 >
-                  <span className="font-medium">{m.nome}</span>
+                  <span className="font-medium">{m.nome} {m.cognome}</span>
                 </button>
               ))}
             </div>
@@ -1415,6 +2025,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           </div>
         </div>
       )}
+      
       {/* Modal Aggiungi Prodotti */}
       {showAddProdottiModal && (
         <ModalAggiungiProdotti
@@ -1424,104 +2035,17 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           onCancel={() => setShowAddProdottiModal(null)}
         />
       )}
+      
+      {/* Modal Correggi Codice */}
+      {showCorreggiCodiceModal && (
+        <ModalCorreggiCodice
+          codiceAttuale={showCorreggiCodiceModal.codiceAttuale}
+          onConfirm={(nuovoCodice) => handleCorreggiCodice(showCorreggiCodiceModal.fatturaId, showCorreggiCodiceModal.voceId, nuovoCodice)}
+          onCancel={() => setShowCorreggiCodiceModal(null)}
+        />
+      )}
     </div>
   );
-};
-
-// Modal per aggiungere prodotti
-const ModalAggiungiProdotti: React.FC<{
-  prestazione: string;
-  prodottiDisponibili: Prodotto[];
-  onConfirm: (prodotti: { codice: string; quantita: number }[]) => void;
-  onCancel: () => void;
-}> = ({ prestazione, prodottiDisponibili, onConfirm, onCancel }) => {
-  const [prodottiSelezionati, setProdottiSelezionati] = useState<{ codice: string; quantita: number }[]>([]);
-
-  const handleToggleProdotto = (codice: string) => {
-    const exists = prodottiSelezionati.find(p => p.codice === codice);
-    if (exists) {
-      setProdottiSelezionati(prodottiSelezionati.filter(p => p.codice !== codice));
-    } else {
-      setProdottiSelezionati([...prodottiSelezionati, { codice, quantita: 1 }]);
-    }
-  };
-
-  const handleQuantitaChange = (codice: string, quantita: number) => {
-    setProdottiSelezionati(prodottiSelezionati.map(p => 
-      p.codice === codice ? { ...p, quantita } : p
-    ));
-  };
-
-  return (
-    <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Aggiungi prodotti per la prestazione {prestazione}
-        </h3>
-        
-        <div className="space-y-3">
-          {prodottiDisponibili.map(prodotto => {
-            const isSelected = prodottiSelezionati.some(p => p.codice === prodotto.codice);
-            const selectedProdotto = prodottiSelezionati.find(p => p.codice === prodotto.codice);
-            
-            return (
-              <div 
-                key={prodotto.codice}
-                className={`p-4 rounded-lg border ${isSelected ? 'border-[#03A6A6] bg-blue-50' : 'border-gray-200'}`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => handleToggleProdotto(prodotto.codice)}
-                      className="rounded border-gray-300 text-[#03A6A6] focus:ring-[#03A6A6]"
-                    />
-                    <div>
-                      <p className="font-medium">{prodotto.nome}</p>
-                      <p className="text-sm text-gray-600">
-                        Codice: {prodotto.codice} • €{(prodotto as any).prezzoDefault || 0}/€{(prodotto as any).prezzoBase || 0} per {prodotto.unita}
-                      </p>
-                    </div>
-                  </div>
-                  
-                  {isSelected && (
-                    <div className="flex items-center gap-2">
-                      <label className="text-sm text-gray-600">Quantità:</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={selectedProdotto?.quantita || 1}
-                        onChange={(e) => handleQuantitaChange(prodotto.codice, parseInt(e.target.value) || 1)}
-                        className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
-                      />
-                      <span className="text-sm text-gray-600">{prodotto.unita}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-          >
-            Annulla
-          </button>
-          <button
-            onClick={() => onConfirm(prodottiSelezionati)}
-            disabled={prodottiSelezionati.length === 0}
-            className="px-4 py-2 text-sm bg-[#03A6A6] text-white rounded-lg hover:bg-[#028a8a] disabled:opacity-50"
-          >
-            Aggiungi {prodottiSelezionati.length} prodott{prodottiSelezionati.length === 1 ? 'o' : 'i'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
+}
 
 export default ImportFatture;

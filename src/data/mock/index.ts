@@ -212,11 +212,14 @@ export function isCodiceValido(codice: string): boolean {
  * Parsa un codice fattura [N]PPP[MMM]
  */
 export function parseCodiceFattura(codice: string) {
-  // Rimuovi cifra IVA iniziale se presente
-  const codiceUtile = codice.replace(/^\d/, '');
+  // Prima cerca il codice completo (con eventuale cifra iniziale)
+  let combinazione = combinazioni.find(c => c.codice === codice);
   
-  // Cerca nelle combinazioni
-  const combinazione = combinazioni.find(c => c.codice === codiceUtile);
+  // Se non trova, prova rimuovendo la cifra IVA iniziale se presente
+  if (!combinazione) {
+    const codiceUtile = codice.replace(/^\d/, '');
+    combinazione = combinazioni.find(c => c.codice === codiceUtile);
+  }
   
   if (combinazione) {
     return {
@@ -224,7 +227,7 @@ export function parseCodiceFattura(codice: string) {
       tipo: combinazione.tipo,
       prestazione: combinazione.prestazione,
       accessorio: combinazione.accessorio,
-      codicePulito: codiceUtile,
+      codicePulito: combinazione.codice,
       isPrestazione: combinazione.tipo === 'prestazione',
       isProdotto: combinazione.tipo === 'prestazione+prodotto',
       isMacchinario: combinazione.tipo === 'prestazione+macchinario'
@@ -233,7 +236,7 @@ export function parseCodiceFattura(codice: string) {
   
   return {
     valido: false,
-    codicePulito: codiceUtile,
+    codicePulito: codice,
     tipo: null,
     prestazione: null,
     accessorio: null,
@@ -383,7 +386,7 @@ export const TIPI_ANOMALIE = {
 } as const;
 
 // ==================== COSTANTI ====================
-export const SERIE_FATTURE_VALIDE = ['FT', 'FI', 'M'];
+export const SERIE_FATTURE_VALIDE = ['P', 'IVA', 'M'];
 export const ALIQUOTA_IVA = 0.22;
 export const UNITA_MISURA = ['fiala', 'ml', 'siringa', 'unità', 'confezione', 'flacone', 'pz', 'filo'] as const;
 
