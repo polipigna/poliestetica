@@ -1,12 +1,4 @@
-import { VoceFattura, prestazioni, prodotti, parseCodiceFattura, isCodiceValido } from '@/data/mock';
-
-// Mapping unità di misura per prodotti
-const unitaMisuraMapping: { [key: string]: string[] } = {
-  'fiala': ['TOX', 'FIL', 'RES', 'BIO'],
-  'ml': ['SKN', 'MES', 'PRP', 'ACI'],
-  'unità': ['THR', 'SUP', 'PEE'],
-  'applicazione': ['LAS', 'IPL', 'CRY', 'RAD', 'ULT', 'CAV']
-};
+import { VoceFattura, prestazioni, prodotti, parseCodiceFattura, isCodiceValido, prodottiMap, isQuantitaAnomala } from '@/data/mock';
 
 export function generateVociFattura(
   numeroVoci: number, 
@@ -85,14 +77,8 @@ export function generateVociFattura(
 
         for (const prodotto of prodottiSelezionati) {
 
-        // Determina unità di misura
-        let unita = 'unità';
-        for (const [unit, prefixes] of Object.entries(unitaMisuraMapping)) {
-          if (prefixes.some(prefix => prodotto.codice.startsWith(prefix))) {
-            unita = unit;
-            break;
-          }
-        }
+        // Usa l'unità del prodotto dal sistema
+        let unita = prodotto.unita;
 
         // Quantità realistica basata su unità
         let quantita = 1;
@@ -100,6 +86,8 @@ export function generateVociFattura(
           quantita = Math.floor(Math.random() * 3) + 1; // 1-3 fiale
         } else if (unita === 'ml') {
           quantita = [1, 2, 5, 10][Math.floor(Math.random() * 4)]; // quantità standard
+        } else if (unita === 'siringa') {
+          quantita = Math.floor(Math.random() * 2) + 1; // 1-2 siringhe
         }
 
         // Anomalie prodotto
@@ -112,9 +100,9 @@ export function generateVociFattura(
           anomalieProdotto.push('prodotto_con_prezzo');
         }
 
-        // 5% quantità anomala
-        if (hasAnomalies && Math.random() < 0.05) {
-          quantita = Math.floor(Math.random() * 50) + 10;
+        // 15% quantità anomala - usa la soglia del prodotto
+        if (hasAnomalies && Math.random() < 0.15) {
+          quantita = prodotto.sogliaAnomalia + Math.floor(Math.random() * 50) + 10;
           anomalieProdotto.push('quantita_anomala');
         }
 
@@ -205,14 +193,50 @@ export function calculateAnomalie(
     anomalie.push('codice_sconosciuto');
   }
 
+  // Verifica unità compatibili per prodotti
+  voci.forEach(voce => {
+    if (voce.tipo === 'prodotto') {
+      const parsed = parseCodiceFattura(voce.codice);
+      if (parsed.valido && parsed.accessorio && parsed.isProdotto) {
+        const prodotto = prodottiMap[parsed.accessorio];
+        if (prodotto && prodotto.unita !== voce.unita) {
+          if (!anomalie.includes('unita_incompatibile')) {
+            anomalie.push('unita_incompatibile');
+          }
+          // Aggiungi anomalia anche alla voce specifica
+          if (!voce.anomalie.includes('unita_incompatibile')) {
+            voce.anomalie.push('unita_incompatibile');
+          }
+        }
+      }
+    }
+  });
+
+  // Verifica quantità anomale per prodotti
+  voci.forEach(voce => {
+    if (voce.tipo === 'prodotto') {
+      const parsed = parseCodiceFattura(voce.codice);
+      if (parsed.valido && parsed.accessorio && parsed.isProdotto) {
+        if (isQuantitaAnomala(parsed.accessorio, voce.quantita)) {
+          if (!anomalie.includes('quantita_anomala')) {
+            anomalie.push('quantita_anomala');
+          }
+          // Aggiungi anomalia anche alla voce specifica se non presente
+          if (!voce.anomalie.includes('quantita_anomala')) {
+            voce.anomalie.push('quantita_anomala');
+          }
+        }
+      }
+    }
+  });
+
   return anomalie;
 }
 
-export function generateNumeroFattura(progressivo: number, conIva: boolean): string {
+export function generateNumeroFattura(progressivo: number, serie: string): string {
   const anno = new Date().getFullYear();
   const numero = progressivo.toString().padStart(4, '0');
-  const suffisso = conIva ? 'IVA' : '';
-  return `FT/${anno}/${numero}${suffisso}`;
+  return `${serie}/${anno}/${numero}`;
 }
 
 // Helper functions per generare specifiche anomalie
@@ -320,11 +344,18 @@ function generateCodiceSconsciuto(): VoceFattura[] {
 }
 
 function generateUnitaIncompatibile(): VoceFattura[] {
+  // Trova un prodotto con unità 'ml' per creare l'anomalia
+  const prodottoMl = prodotti.find(p => p.unita === 'ml' && isCodiceValido('3FLL' + p.codice));
+  if (!prodottoMl) {
+    // Fallback nel caso non trovi prodotti adatti
+    return generateProdottoConPrezzo();
+  }
+
   return [
     {
       id: 1,
-      codice: '7LAV',
-      descrizione: 'Laser viso',
+      codice: '3FLL',
+      descrizione: 'Filler labbra',
       tipo: 'prestazione',
       importoNetto: 400,
       importoLordo: 488,
@@ -334,25 +365,69 @@ function generateUnitaIncompatibile(): VoceFattura[] {
     },
     {
       id: 2,
-      codice: '7LAVVEX',
-      descrizione: 'Laser viso - Gel protettivo',
+      codice: '3FLL' + prodottoMl.codice,
+      descrizione: `Filler labbra - ${prodottoMl.nome}`,
       tipo: 'prodotto',
-      prestazionePadre: '7LAV',
+      prestazionePadre: '3FLL',
       importoNetto: 0,
       importoLordo: 0,
-      quantita: 100,
-      unita: 'fiala', // ANOMALIA: dovrebbe essere 'ml'
+      quantita: 2,
+      unita: 'fiala', // ANOMALIA: il prodotto ha unità 'ml'
       anomalie: ['unita_incompatibile']
     }
   ];
 }
 
 function generateQuantitaAnomala(): VoceFattura[] {
+  // Lista di combinazioni valide note per generare quantità anomale
+  const combinazioniValide = [
+    { prestazione: 'FLL', prodotto: 'AFL', descPrest: 'Filler labbra' },
+    { prestazione: 'FLV', prodotto: 'AEV', descPrest: 'Filler viso' },
+    { prestazione: '1TOX', prodotto: 'VEX', descPrest: 'Tossina botulinica 100U' },
+    { prestazione: '2TOX', prodotto: 'BCO', descPrest: 'Tossina botulinica 50U' }
+  ];
+  
+  // Seleziona una combinazione casuale
+  const combo = combinazioniValide[Math.floor(Math.random() * combinazioniValide.length)];
+  const prodotto = prodotti.find(p => p.codice === combo.prodotto);
+  
+  if (!prodotto) {
+    // Fallback con valori hardcoded per garantire quantità anomala
+    return [
+      {
+        id: 1,
+        codice: 'FLL',
+        descrizione: 'Filler labbra',
+        tipo: 'prestazione',
+        importoNetto: 400,
+        importoLordo: 488,
+        quantita: 1,
+        unita: 'prestazione',
+        anomalie: []
+      },
+      {
+        id: 2,
+        codice: 'FLLAFL',
+        descrizione: 'Filler labbra - Acido ialuronico',
+        tipo: 'prodotto',
+        prestazionePadre: 'FLL',
+        importoNetto: 0,
+        importoLordo: 0,
+        quantita: 200, // Quantità molto alta per garantire anomalia
+        unita: 'fiala',
+        anomalie: ['quantita_anomala']
+      }
+    ];
+  }
+
+  // Genera quantità sicuramente anomala (molto alta)
+  const quantitaAnomala = Math.max(100, prodotto.sogliaAnomalia * 10 + Math.floor(Math.random() * 100));
+
   return [
     {
       id: 1,
-      codice: '7LAV',
-      descrizione: 'Laser viso',
+      codice: combo.prestazione,
+      descrizione: combo.descPrest,
       tipo: 'prestazione',
       importoNetto: 400,
       importoLordo: 488,
@@ -362,14 +437,14 @@ function generateQuantitaAnomala(): VoceFattura[] {
     },
     {
       id: 2,
-      codice: '7LAVVEX',
-      descrizione: 'Laser viso - Gel protettivo',
+      codice: combo.prestazione + combo.prodotto,
+      descrizione: `${combo.descPrest} - ${prodotto.nome}`,
       tipo: 'prodotto',
-      prestazionePadre: '7LAV',
+      prestazionePadre: combo.prestazione,
       importoNetto: 0,
       importoLordo: 0,
-      quantita: 5000, // ANOMALIA: quantità anomala (soglia 3000)
-      unita: 'ml',
+      quantita: quantitaAnomala,
+      unita: prodotto.unita,
       anomalie: ['quantita_anomala']
     }
   ];
