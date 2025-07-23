@@ -1,4 +1,4 @@
-import { VoceFattura, prestazioni, prodotti, parseCodiceFattura, isCodiceyValido as isCodiceValido } from '@/data/mock';
+import { VoceFattura, prestazioni, prodotti, parseCodiceFattura, isCodiceValido } from '@/data/mock';
 
 // Mapping unità di misura per prodotti
 const unitaMisuraMapping: { [key: string]: string[] } = {
@@ -14,6 +14,30 @@ export function generateVociFattura(
   scenario?: string
 ): VoceFattura[] {
   const voci: VoceFattura[] = [];
+  
+  // Gestione scenari specifici
+  if (scenario) {
+    switch (scenario) {
+      case 'prodotto_con_prezzo':
+        return generateProdottoConPrezzo();
+      case 'prodotto_orfano':
+        return generateProdottoOrfano();
+      case 'prestazione_incompleta':
+        return generatePrestazioneIncompleta();
+      case 'prestazione_duplicata':
+        return generatePrestazioneDuplicata();
+      case 'codice_sconosciuto':
+        return generateCodiceSconsciuto();
+      case 'unita_incompatibile':
+        return generateUnitaIncompatibile();
+      case 'quantita_anomala':
+        return generateQuantitaAnomala();
+      case 'normale':
+        hasAnomalies = false;
+        break;
+    }
+  }
+  
   const prestazioniDisponibili = [...prestazioni];
   
   for (let i = 0; i < numeroVoci && prestazioniDisponibili.length > 0; i++) {
@@ -189,4 +213,164 @@ export function generateNumeroFattura(progressivo: number, conIva: boolean): str
   const numero = progressivo.toString().padStart(4, '0');
   const suffisso = conIva ? 'IVA' : '';
   return `FT/${anno}/${numero}${suffisso}`;
+}
+
+// Helper functions per generare specifiche anomalie
+function generateProdottoConPrezzo(): VoceFattura[] {
+  return [
+    {
+      id: 1,
+      codice: '3FLL',
+      descrizione: 'Filler labbra',
+      tipo: 'prestazione',
+      importoNetto: 300,
+      importoLordo: 366,
+      quantita: 1,
+      unita: 'prestazione',
+      anomalie: []
+    },
+    {
+      id: 2,
+      codice: '3FLLAFL',
+      descrizione: 'Filler labbra - Acido ialuronico',
+      tipo: 'prodotto',
+      prestazionePadre: '3FLL',
+      importoNetto: 50, // ANOMALIA: prodotto con prezzo
+      importoLordo: 61,
+      quantita: 2,
+      unita: 'fiala',
+      anomalie: ['prodotto_con_prezzo']
+    }
+  ];
+}
+
+function generateProdottoOrfano(): VoceFattura[] {
+  return [
+    {
+      id: 1,
+      codice: 'AFL', // ANOMALIA: prodotto senza prestazione
+      descrizione: 'Acido ialuronico',
+      tipo: 'prodotto',
+      importoNetto: 0,
+      importoLordo: 0,
+      quantita: 2,
+      unita: 'fiala',
+      anomalie: ['prodotto_orfano']
+    }
+  ];
+}
+
+function generatePrestazioneIncompleta(): VoceFattura[] {
+  return [
+    {
+      id: 1,
+      codice: '3FLL', // Prestazione che richiede prodotti ma non li ha
+      descrizione: 'Filler labbra',
+      tipo: 'prestazione',
+      importoNetto: 300,
+      importoLordo: 366,
+      quantita: 1,
+      unita: 'prestazione',
+      anomalie: ['prestazione_incompleta']
+    }
+  ];
+}
+
+function generatePrestazioneDuplicata(): VoceFattura[] {
+  return [
+    {
+      id: 1,
+      codice: '2BOT',
+      descrizione: 'Botulino',
+      tipo: 'prestazione',
+      importoNetto: 350,
+      importoLordo: 427,
+      quantita: 1,
+      unita: 'prestazione',
+      anomalie: []
+    },
+    {
+      id: 2,
+      codice: '2BOT', // ANOMALIA: stesso codice prestazione
+      descrizione: 'Botulino',
+      tipo: 'prestazione',
+      importoNetto: 350,
+      importoLordo: 427,
+      quantita: 1,
+      unita: 'prestazione',
+      anomalie: ['prestazione_duplicata']
+    }
+  ];
+}
+
+function generateCodiceSconsciuto(): VoceFattura[] {
+  return [
+    {
+      id: 1,
+      codice: '9XXX', // ANOMALIA: codice non nel sistema
+      descrizione: 'Trattamento sconosciuto',
+      tipo: 'prestazione',
+      importoNetto: 200,
+      importoLordo: 244,
+      quantita: 1,
+      unita: 'prestazione',
+      anomalie: ['codice_sconosciuto']
+    }
+  ];
+}
+
+function generateUnitaIncompatibile(): VoceFattura[] {
+  return [
+    {
+      id: 1,
+      codice: '7LAV',
+      descrizione: 'Laser viso',
+      tipo: 'prestazione',
+      importoNetto: 400,
+      importoLordo: 488,
+      quantita: 1,
+      unita: 'prestazione',
+      anomalie: []
+    },
+    {
+      id: 2,
+      codice: '7LAVVEX',
+      descrizione: 'Laser viso - Gel protettivo',
+      tipo: 'prodotto',
+      prestazionePadre: '7LAV',
+      importoNetto: 0,
+      importoLordo: 0,
+      quantita: 100,
+      unita: 'fiala', // ANOMALIA: dovrebbe essere 'ml'
+      anomalie: ['unita_incompatibile']
+    }
+  ];
+}
+
+function generateQuantitaAnomala(): VoceFattura[] {
+  return [
+    {
+      id: 1,
+      codice: '7LAV',
+      descrizione: 'Laser viso',
+      tipo: 'prestazione',
+      importoNetto: 400,
+      importoLordo: 488,
+      quantita: 1,
+      unita: 'prestazione',
+      anomalie: []
+    },
+    {
+      id: 2,
+      codice: '7LAVVEX',
+      descrizione: 'Laser viso - Gel protettivo',
+      tipo: 'prodotto',
+      prestazionePadre: '7LAV',
+      importoNetto: 0,
+      importoLordo: 0,
+      quantita: 5000, // ANOMALIA: quantità anomala (soglia 3000)
+      unita: 'ml',
+      anomalie: ['quantita_anomala']
+    }
+  ];
 }

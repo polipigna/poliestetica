@@ -204,7 +204,7 @@ export function getCostoProdotto(medicoId: number, codiceProdotto: string): numb
 /**
  * Valida se un codice è nel sistema
  */
-export function isCodiceyValido(codice: string): boolean {
+export function isCodiceValido(codice: string): boolean {
   return combinazioni.some(c => c.codice === codice);
 }
 
