@@ -102,8 +102,8 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   const [showSyncSummary, setShowSyncSummary] = useState(false);
   const [syncSummary, setSyncSummary] = useState<{ nuove: number; aggiornate: number; totali: number } | null>(null);
   const [showAddProdottiModal, setShowAddProdottiModal] = useState<{ fatturaId: number; prestazione: string } | null>(null);
-  const [quantitaTemp, setQuantitaTemp] = useState<{ fatturaId: number; voceId: number; quantita: number } | null>(null);
   const [showCorreggiCodiceModal, setShowCorreggiCodiceModal] = useState<{ fatturaId: number; voceId: number; codiceAttuale: string } | null>(null);
+  const [quantitaTemp, setQuantitaTemp] = useState<{ [key: string]: number }>({});
   const [filtroRiepilogoMedico, setFiltroRiepilogoMedico] = useState('tutti');
   const [filtroRiepilogoSerie, setFiltroRiepilogoSerie] = useState('tutte');
 
@@ -185,24 +185,40 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     // Analizza voci se esistono
     if (fattura.voci && Array.isArray(fattura.voci)) {
       fattura.voci.forEach((voce) => {
-        const anomalieVoce = verificaAnomalieVoce(voce, fattura.voci!);
+        // Usa le anomalie già salvate nella voce
+        const anomalieVoce = voce.anomalie || [];
         anomalie.push(...anomalieVoce);
       });
     }
     
     return [...new Set(anomalie)]; // Rimuovi duplicati
     };
-  }, [prodottiMap, prestazioniMap, verificaAnomalieVoce]);
+  }, []);
   
-  // Aggiorna fatture con anomalie quando cambiano i props o le dipendenze
+  // Stato per indicare se le fatture sono state inizializzate
+  const [fattureInizializzate, setFattureInizializzate] = useState(false);
+
+  // Aggiorna fatture con anomalie solo all'inizializzazione
   useEffect(() => {
-    const fattureConAnomalie = fattureProps.map(f => {
-      const anomalie = getAnomalieFattura(f);
-      const stato = anomalie.length > 0 ? 'anomalia' : (f.stato === 'importata' ? 'importata' : 'da_importare');
-      return { ...f, stato: stato as any, anomalie };
-    });
-    setFatture(fattureConAnomalie);
-  }, [fattureProps, getAnomalieFattura]);
+    if (!fattureInizializzate) {
+      const fattureConAnomalie = fattureProps.map(f => {
+        // Prima aggiorna le anomalie delle voci
+        const vociConAnomalie = f.voci ? f.voci.map(voce => {
+          const anomalieVoce = verificaAnomalieVoce(voce, f.voci!);
+          return { ...voce, anomalie: anomalieVoce };
+        }) : f.voci;
+        
+        // Poi calcola le anomalie della fattura
+        const fatturaConVociAggiornate = { ...f, voci: vociConAnomalie };
+        const anomalie = getAnomalieFattura(fatturaConVociAggiornate);
+        const stato = anomalie.length > 0 ? 'anomalia' : (f.stato === 'importata' ? 'importata' : 'da_importare');
+        
+        return { ...fatturaConVociAggiornate, stato: stato as any, anomalie };
+      });
+      setFatture(fattureConAnomalie);
+      setFattureInizializzate(true);
+    }
+  }, [fattureProps, getAnomalieFattura, verificaAnomalieVoce, fattureInizializzate]);
   
   // Conteggio filtri attivi
   const filtriAttivi = useMemo(() => {
@@ -341,6 +357,32 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     
     setSelectedFatture([]);
     setShowAssignMedico(false);
+  };
+
+  // Assegna medico singolo (per anomalia)
+  const handleAssegnaMedicoSingolo = (fatturaId: number, medicoId: number, medicoNome: string) => {
+    setFatture(fatture.map(f => {
+      if (f.id === fatturaId) {
+        // Rimuovi anomalia medico_mancante
+        const anomalie = getAnomalieFattura({ ...f, medicoId, medicoNome });
+        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
+        
+        const updatedFattura = { 
+          ...f, 
+          medicoId, 
+          medicoNome, 
+          anomalie,
+          stato: stato as any 
+        };
+        
+        if (onUpdateFattura) {
+          onUpdateFattura(fatturaId, updatedFattura);
+        }
+        
+        return updatedFattura;
+      }
+      return f;
+    }));
   };
 
   // Azioni risoluzione anomalie
@@ -488,42 +530,19 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   // Handler per correggere quantità
   const handleCorreggiQuantita = (fatturaId: number, voceId: number, nuovaQuantita: number) => {
-    setFatture(fatture.map(f => {
-      if (f.id === fatturaId && f.voci) {
-        const voci = f.voci.map(v => 
-          v.id === voceId ? { ...v, quantita: nuovaQuantita } : v
-        );
-        
-        const anomalie = getAnomalieFattura({ ...f, voci });
-        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
-        
-        const updatedFattura = { ...f, voci, anomalie, stato: stato as any };
-        
-        if (onUpdateFattura) {
-          onUpdateFattura(fatturaId, updatedFattura);
-        }
-        
-        return updatedFattura;
-      }
-      return f;
-    }));
-    setQuantitaTemp(null);
-  };
-
-  // Handler per approvare quantità anomala
-  const handleApprovaQuantitaAnomala = (fatturaId: number, voceId: number) => {
+    console.log('Correzione quantità:', { fatturaId, voceId, nuovaQuantita });
+    
     setFatture(fatture.map(f => {
       if (f.id === fatturaId && f.voci) {
         const voci = f.voci.map(v => {
           if (v.id === voceId) {
-            // Rimuovi l'anomalia quantita_anomala dalla voce
-            const anomalieFiltrate = v.anomalie.filter(a => a !== 'quantita_anomala');
-            return { ...v, anomalie: anomalieFiltrate };
+            // Aggiorna la quantità e rimuovi sempre l'anomalia quantita_anomala
+            const anomalieFiltrate = v.anomalie ? v.anomalie.filter(a => a !== 'quantita_anomala') : [];
+            return { ...v, quantita: nuovaQuantita, anomalie: anomalieFiltrate };
           }
           return v;
         });
         
-        // Ricalcola le anomalie della fattura
         const anomalie = getAnomalieFattura({ ...f, voci });
         const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
         
@@ -537,13 +556,25 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       }
       return f;
     }));
+    
+    // Pulisci il valore temporaneo dopo l'uso
+    const key = `${fatturaId}-${voceId}`;
+    setQuantitaTemp(prev => {
+      const newTemp = { ...prev };
+      delete newTemp[key];
+      return newTemp;
+    });
   };
+
 
   // Handler per correggere codice
   const handleCorreggiCodice = (fatturaId: number, voceId: number, nuovoCodice: string) => {
+    console.log('Correzione codice:', { fatturaId, voceId, nuovoCodice });
+    
     setFatture(fatture.map(f => {
       if (f.id === fatturaId && f.voci) {
-        const voci = f.voci.map(v => {
+        // Prima passo: aggiorna il codice della voce
+        let vociConNuovoCodice = f.voci.map(v => {
           if (v.id === voceId) {
             let nuovaDescrizione = v.descrizione;
             let nuovoTipo: 'prestazione' | 'prodotto' = v.tipo || 'prestazione';
@@ -581,6 +612,12 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             return { ...v, codice: nuovoCodice, descrizione: nuovaDescrizione, tipo: nuovoTipo };
           }
           return v;
+        });
+        
+        // Secondo passo: ricalcola le anomalie per tutte le voci
+        const voci = vociConNuovoCodice.map(v => {
+          const anomalieVoce = verificaAnomalieVoce(v, vociConNuovoCodice);
+          return { ...v, anomalie: anomalieVoce };
         });
         
         // Ricalcola importi se necessario
@@ -710,31 +747,37 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                 {config.label}
               </span>
               {anomalia === 'medico_mancante' && fatturaId && (
-                <select
-                  className="text-xs border border-gray-300 rounded px-2 py-1"
-                  onChange={(e) => {
-                    const medicoId = parseInt(e.target.value);
-                    if (medicoId && onUpdateFattura) {
-                      const medico = medici.find(m => m.id === medicoId);
-                      if (medico) {
-                        const nuoveAnomalie = anomalie.filter(a => a !== 'medico_mancante');
-                        onUpdateFattura(fatturaId, { 
-                          medicoId, 
-                          medicoNome: `${medico.nome} ${medico.cognome}`,
-                          anomalie: nuoveAnomalie,
-                          stato: nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare'
-                        });
+                <div className="flex items-center gap-2">
+                  <select
+                    className="text-xs border border-gray-300 rounded px-2 py-1"
+                    id={`medico-select-${fatturaId}`}
+                    defaultValue=""
+                  >
+                    <option value="">Seleziona medico...</option>
+                    {medici.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.nome} {m.cognome}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => {
+                      const selectElement = document.getElementById(`medico-select-${fatturaId}`) as HTMLSelectElement;
+                      const medicoId = parseInt(selectElement?.value || '0');
+                      if (medicoId) {
+                        const medico = medici.find(m => m.id === medicoId);
+                        if (medico && confirm(`Confermi l'assegnazione di ${medico.nome} ${medico.cognome} a questa fattura?`)) {
+                          handleAssegnaMedicoSingolo(fatturaId, medicoId, `${medico.nome} ${medico.cognome}`);
+                        }
+                      } else {
+                        alert('Seleziona un medico prima di confermare');
                       }
-                    }
-                  }}
-                >
-                  <option value="">Seleziona medico...</option>
-                  {medici.map(m => (
-                    <option key={m.id} value={m.id}>
-                      {m.nome} {m.cognome}
-                    </option>
-                  ))}
-                </select>
+                    }}
+                    className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Conferma
+                  </button>
+                </div>
               )}
             </div>
           );
@@ -991,7 +1034,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             <h4 className="font-medium text-sm text-gray-900">Dettaglio voci fattura</h4>
             <div className="space-y-2">
               {fattura.voci.map(voce => {
-                const anomalieVoce = verificaAnomalieVoce(voce, fattura.voci!);
+                const anomalieVoce = voce.anomalie || [];
                 const parsed = parseCodiceFattura(voce.codice);
                 
                 return (
@@ -1059,27 +1102,35 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                                 </button>
                               )}
                               {anomalieVoce.includes('quantita_anomala') && (
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-2 relative z-10">
                                   <span className="text-xs text-gray-600">
-                                    Soglia: {parsed.accessorio ? prodottiMap[parsed.accessorio]?.sogliaAnomalia : 'n/a'}
+                                    Quantità attuale: {voce.quantita} (Soglia: {parsed.accessorio ? prodottiMap[parsed.accessorio]?.sogliaAnomalia : 'n/a'})
                                   </span>
                                   <input
                                     type="number"
                                     defaultValue={voce.quantita}
-                                    onChange={(e) => setQuantitaTemp({ fatturaId: fattura.id, voceId: voce.id, quantita: parseInt(e.target.value) || 0 })}
-                                    className="w-16 px-1 py-0.5 text-xs border rounded"
+                                    onChange={(e) => {
+                                      const key = `${fattura.id}-${voce.id}`;
+                                      setQuantitaTemp(prev => ({
+                                        ...prev,
+                                        [key]: parseInt(e.target.value) || 0
+                                      }));
+                                    }}
+                                    className="w-20 px-2 py-1 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-pink-500"
                                   />
                                   <button
-                                    onClick={() => handleCorreggiQuantita(fattura.id, voce.id, quantitaTemp?.quantita || voce.quantita)}
-                                    className="px-2 py-1 text-xs bg-pink-600 text-white rounded hover:bg-pink-700"
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      const key = `${fattura.id}-${voce.id}`;
+                                      const nuovaQuantita = quantitaTemp[key] ?? voce.quantita;
+                                      console.log('Click su Correggi:', { key, nuovaQuantita });
+                                      handleCorreggiQuantita(fattura.id, voce.id, nuovaQuantita);
+                                    }}
+                                    className="px-3 py-1 text-xs bg-pink-600 text-white rounded hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-pink-500 cursor-pointer"
                                   >
                                     Correggi
-                                  </button>
-                                  <button
-                                    onClick={() => handleApprovaQuantitaAnomala(fattura.id, voce.id)}
-                                    className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
-                                  >
-                                    Approva
                                   </button>
                                 </div>
                               )}
@@ -1103,7 +1154,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
             {/* Verifica prestazioni incomplete */}
             {fattura.voci.filter(v => {
-              const anomalie = verificaAnomalieVoce(v, fattura.voci!);
+              const anomalie = v.anomalie || [];
               return anomalie.includes('prestazione_incompleta');
             }).map(voce => (
               <div key={`inc-${voce.id}`} className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
