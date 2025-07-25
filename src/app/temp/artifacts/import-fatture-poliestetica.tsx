@@ -2530,18 +2530,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                     {selectedFatture.length} selezionate
                   </span>
                   <button
-                    onClick={() => setShowAssignMedico(true)}
-                    className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-                  >
-                    Assegna medico
-                  </button>
-                  <button
-                    onClick={handleExportSelected}
-                    className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-                  >
-                    <Download className="w-4 h-4" />
-                  </button>
-                  <button
                     onClick={handleImport}
                     disabled={isImporting}
                     className="px-4 py-2 text-sm bg-[#03A6A6] text-white rounded-lg hover:bg-[#028a8a] disabled:opacity-50"
