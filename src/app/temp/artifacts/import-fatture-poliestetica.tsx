@@ -2334,7 +2334,20 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
       {/* Stati Overview */}
       <div className="px-6 py-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <button
+            onClick={() => setFiltroStato('tutti')}
+            className={`p-4 rounded-lg border ${
+              filtroStato === 'tutti' ? 'border-[#03A6A6] bg-[#03A6A6]/5' : 'border-gray-200 bg-white'
+            } hover:border-[#03A6A6] transition-all`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-600">Tutte le fatture</span>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                {fatture.length}
+              </span>
+            </div>
+          </button>
           {[
             { key: 'da_importare', label: 'Da importare', color: 'bg-gray-100 text-gray-800' },
             { key: 'anomalia', label: 'Con anomalie', color: 'bg-red-100 text-red-800' },
@@ -2385,27 +2398,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           };
           
           return (
-            <div className="mt-6 bg-red-50 border border-red-200 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-red-800">Riepilogo Anomalie Rilevate</h3>
-                <button
-                  onClick={() => {
-                    if (filtroAnomalia === 'senza_anomalie') {
-                      setFiltroAnomalia('tutte');
-                    } else {
-                      setFiltroAnomalia('senza_anomalie');
-                    }
-                  }}
-                  className={`px-3 py-1 text-xs rounded-lg transition-colors ${
-                    filtroAnomalia === 'senza_anomalie'
-                      ? 'bg-green-100 text-green-800 border-2 border-green-300'
-                      : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-300'
-                  }`}
-                >
-                  Mostra solo fatture senza anomalie
-                </button>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
+              <h3 className="text-sm font-medium text-red-800 mb-2">Anomalie Rilevate</h3>
+              <div className="flex flex-wrap gap-2">
                 {Object.entries(riepilogoAnomalie).map(([anomalia, count]) => {
                   const config = anomalieConfig[anomalia];
                   if (!config) return null;
@@ -2420,16 +2415,15 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                           setFiltroAnomalia(anomalia);
                         }
                       }}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors ${
                         filtroAnomalia === anomalia 
-                          ? 'bg-red-100 border-2 border-red-300' 
-                          : 'hover:bg-red-100 border-2 border-transparent'
+                          ? 'bg-white border-2 border-red-400 shadow-sm' 
+                          : 'bg-white hover:bg-gray-50 border border-gray-200'
                       }`}
                     >
                       <Icon className={`w-4 h-4 ${config.color}`} />
-                      <span className="text-sm text-gray-700">
-                        {config.label}: <span className="font-medium">{count}</span>
-                      </span>
+                      <span className="text-gray-700">{config.label}</span>
+                      <span className="font-bold text-gray-900">{count}</span>
                     </button>
                   );
                 })}
@@ -2445,18 +2439,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           <div className="flex flex-col gap-4">
             {/* Prima riga: Filtri principali */}
             <div className="flex items-center gap-3 flex-wrap">
-              <select
-                value={filtroStato}
-                onChange={(e) => setFiltroStato(e.target.value)}
-                className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
-              >
-                <option value="tutti">Tutti gli stati</option>
-                <option value="da_importare">Da importare</option>
-                <option value="anomalia">Con anomalie</option>
-                <option value="importata">Importate</option>
-              </select>
-              
-              <select
+<select
                 value={filtroMedico}
                 onChange={(e) => setFiltroMedico(e.target.value)}
                 className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
