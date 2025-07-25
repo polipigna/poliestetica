@@ -110,6 +110,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   const [showAddMacchinarioModal, setShowAddMacchinarioModal] = useState<{ fatturaId: number; prestazione: string } | null>(null);
   const [showCorreggiCodiceModal, setShowCorreggiCodiceModal] = useState<{ fatturaId: number; voceId: number; codiceAttuale: string } | null>(null);
   const [quantitaTemp, setQuantitaTemp] = useState<{ [key: string]: number }>({});
+  const [prezzoTempProdottoOrfano, setPrezzoTempProdottoOrfano] = useState<{ [key: string]: number }>({});
   const [filtroRiepilogoMedico, setFiltroRiepilogoMedico] = useState('tutti');
   const [filtroRiepilogoSerie, setFiltroRiepilogoSerie] = useState('tutte');
 
@@ -161,6 +162,16 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       return ['codice_sconosciuto'];
     }
     
+    // Controlla se è una combinazione di tipo prestazione o prestazione+macchinario
+    const combinazione = combinazioni.find(c => c.codice === voce.codice);
+    if (combinazione && (combinazione.tipo === 'prestazione' || combinazione.tipo === 'prestazione+macchinario')) {
+      // Controllo prestazione duplicata anche per combinazioni prestazione/macchinario
+      const duplicati = voci.filter(v => v.codice === voce.codice && v.id !== voce.id);
+      if (duplicati.length > 0) {
+        anomalie.push('prestazione_duplicata');
+      }
+    }
+    
     if (parsed.isProdotto) {
       // Controllo prodotto con prezzo (escludi macchinari che devono avere prezzo)
       if (voce.tipo === 'prodotto' && voce.importoNetto > 0) {
@@ -175,6 +186,14 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           v.codice === parsed.prestazione && parseCodiceFattura(v.codice).isPrestazione
         );
         if (!prestazionePadre) {
+          anomalie.push('prodotto_orfano');
+        }
+      } else {
+        // Se ha una prestazionePadre, verifica che esista tra le voci
+        const prestazioneTrovata = voci.find(v => 
+          v.codice === voce.prestazionePadre && v.tipo === 'prestazione'
+        );
+        if (!prestazioneTrovata) {
           anomalie.push('prodotto_orfano');
         }
       }
@@ -575,6 +594,82 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     }
   };
 
+  const handleAggiornaPrezzoEAssociaPrestazione = (fatturaId: number, voceId: number, nuovoPrezzo: number, codicePrestazione: string) => {
+    setFatture(fatture.map(f => {
+      if (f.id === fatturaId && f.voci) {
+        const prestazione = prestazioniMap[codicePrestazione];
+        if (!prestazione) return f;
+        
+        // Crea la nuova voce prestazione con il prezzo inserito
+        const nuovaVocePrestazione: VoceFattura = {
+          id: Date.now() + Math.random(),
+          codice: codicePrestazione,
+          descrizione: prestazione.descrizione,
+          tipo: 'prestazione',
+          importoNetto: nuovoPrezzo,
+          importoLordo: nuovoPrezzo,
+          quantita: 1,
+          unita: 'prestazione',
+          anomalie: []
+        };
+        
+        // Aggiorna la voce prodotto esistente: associala alla prestazione e azzera il prezzo
+        const vociAggiornate = f.voci.map(v => {
+          if (v.id === voceId) {
+            return {
+              ...v,
+              prestazionePadre: codicePrestazione,
+              importoNetto: 0, // I prodotti hanno sempre prezzo 0
+              importoLordo: 0,
+              // Rimuovi le anomalie prodotto_orfano e prodotto_con_prezzo se presente
+              anomalie: v.anomalie ? v.anomalie.filter(a => a !== 'prodotto_orfano' && a !== 'prodotto_con_prezzo') : []
+            };
+          }
+          return v;
+        });
+        
+        // Aggiungi la nuova voce prestazione all'inizio
+        const vociComplete = [nuovaVocePrestazione, ...vociAggiornate];
+        
+        // Ricalcola tutte le anomalie
+        const vociConAnomalieRicalcolate = vociComplete.map(v => {
+          const anomalieVoce = verificaAnomalieVoce(v, vociComplete);
+          return { ...v, anomalie: anomalieVoce };
+        });
+        
+        // Calcola totali
+        const totaleNetto = vociConAnomalieRicalcolate.reduce((sum, v) => sum + (v.importoNetto || 0), 0);
+        
+        // Calcola anomalie a livello fattura
+        const anomalie = getAnomalieFattura({ ...f, voci: vociConAnomalieRicalcolate });
+        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
+        
+        const updatedFattura = {
+          ...f,
+          voci: vociConAnomalieRicalcolate,
+          imponibile: totaleNetto,
+          totale: f.conIva ? totaleNetto * 1.22 : totaleNetto,
+          anomalie,
+          stato: stato as any
+        };
+        
+        if (onUpdateFattura) {
+          onUpdateFattura(fatturaId, updatedFattura);
+        }
+        
+        // Pulisci il prezzo temporaneo
+        setPrezzoTempProdottoOrfano(prev => {
+          const newState = { ...prev };
+          delete newState[`prezzo-${fatturaId}-${voceId}`];
+          return newState;
+        });
+        
+        return updatedFattura;
+      }
+      return f;
+    }));
+  };
+
   const handleAssociaPrestazione = (fatturaId: number, voceId: number, codicePrestazione: string) => {
     setFatture(fatture.map(f => {
       if (f.id === fatturaId && f.voci) {
@@ -835,7 +930,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
 
   // Handler per correggere codice
-  const handleCorreggiCodice = (fatturaId: number, voceId: number, nuovoCodice: string) => {
+  const handleCorreggiCodice = (fatturaId: number, voceId: number, nuovoCodice: string, nuovoPrezzo?: number, nuovaQuantita?: number) => {
     console.log('Correzione codice:', { fatturaId, voceId, nuovoCodice });
     
     setFatture(fatture.map(f => {
@@ -847,12 +942,30 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             let nuovoTipo: 'prestazione' | 'prodotto' | 'macchinario' = v.tipo || 'prestazione';
             let nuovaPrestazionePadre: string | undefined = v.prestazionePadre;
             let nuovaUnita = v.unita;
+            let nuovoImportoNetto = v.importoNetto;
+            let nuovoImportoLordo = v.importoLordo;
+            let quantitaAggiornata = nuovaQuantita !== undefined ? nuovaQuantita : v.quantita;
             
             // Prima cerca nelle combinazioni per capire il tipo
             const combinazione = combinazioni.find(c => c.codice === nuovoCodice);
             console.log('Combinazione trovata:', combinazione);
             
-            if (combinazione) {
+            // Se non è una combinazione, potrebbe essere una prestazione semplice
+            if (!combinazione) {
+              const prestazioneSemplice = prestazioniMap[nuovoCodice];
+              if (prestazioneSemplice) {
+                nuovaDescrizione = prestazioneSemplice.descrizione;
+                nuovoTipo = 'prestazione';
+                nuovaPrestazionePadre = undefined;
+                nuovaUnita = 'prestazione';
+                quantitaAggiornata = 1; // Prestazioni sempre quantità 1
+                // Se viene fornito un nuovo prezzo per la prestazione
+                if (nuovoPrezzo !== undefined && nuovoPrezzo > 0) {
+                  nuovoImportoNetto = nuovoPrezzo;
+                  nuovoImportoLordo = nuovoPrezzo;
+                }
+              }
+            } else if (combinazione) {
               if (combinazione.tipo === 'prestazione') {
                 // È una prestazione semplice
                 const prestazione = prestazioniMap[combinazione.prestazione!];
@@ -860,6 +973,13 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                   nuovaDescrizione = prestazione.descrizione;
                   nuovoTipo = 'prestazione';
                   nuovaPrestazionePadre = undefined; // Le prestazioni non hanno prestazione padre
+                  nuovaUnita = 'prestazione';
+                  quantitaAggiornata = 1; // Prestazioni sempre quantità 1
+                  // Se viene fornito un nuovo prezzo per la prestazione
+                  if (nuovoPrezzo !== undefined && nuovoPrezzo > 0) {
+                    nuovoImportoNetto = nuovoPrezzo;
+                    nuovoImportoLordo = nuovoPrezzo;
+                  }
                 }
               } else if (combinazione.tipo === 'prestazione+prodotto') {
                 // È un prodotto
@@ -871,6 +991,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                   // Imposta la prestazione padre per evitare l'anomalia prodotto_orfano
                   nuovaPrestazionePadre = combinazione.prestazione;
                   nuovaUnita = prodotto.unita; // Usa l'unità corretta del prodotto
+                  // I prodotti hanno sempre prezzo 0
+                  nuovoImportoNetto = 0;
+                  nuovoImportoLordo = 0;
                 }
               } else if (combinazione.tipo === 'prestazione+macchinario') {
                 // È un macchinario
@@ -878,8 +1001,15 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                 const macchinario = macchinari.find(m => m.codice === combinazione.accessorio);
                 if (prestazione && macchinario) {
                   nuovaDescrizione = `${prestazione.descrizione} - ${macchinario.nome}`;
-                  nuovoTipo = 'prestazione'; // I macchinari sono trattati come prestazioni
-                  nuovaPrestazionePadre = undefined;
+                  nuovoTipo = 'macchinario';
+                  nuovaPrestazionePadre = combinazione.prestazione;
+                  nuovaUnita = 'utilizzo'; // I macchinari usano sempre 'utilizzo'
+                  quantitaAggiornata = 1; // Macchinari sempre quantità 1
+                  // Se viene fornito un nuovo prezzo per il macchinario
+                  if (nuovoPrezzo !== undefined && nuovoPrezzo > 0) {
+                    nuovoImportoNetto = nuovoPrezzo;
+                    nuovoImportoLordo = nuovoPrezzo;
+                  }
                 }
               }
             }
@@ -890,7 +1020,10 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               descrizione: nuovaDescrizione, 
               tipo: nuovoTipo,
               prestazionePadre: nuovaPrestazionePadre,
-              unita: nuovaUnita
+              unita: nuovaUnita,
+              importoNetto: nuovoImportoNetto,
+              importoLordo: nuovoImportoLordo,
+              quantita: quantitaAggiornata
             };
             
             console.log('Voce prima:', v);
@@ -903,7 +1036,13 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         // Secondo passo: ricalcola le anomalie per tutte le voci
         const voci = vociConNuovoCodice.map(v => {
           const anomalieVoce = verificaAnomalieVoce(v, vociConNuovoCodice);
-          console.log(`Anomalie per voce ${v.id}:`, anomalieVoce);
+          console.log(`Anomalie ricalcolate per voce ${v.id} (${v.codice}):`, {
+            codice: v.codice,
+            tipo: v.tipo,
+            prestazionePadre: v.prestazionePadre,
+            anomalie: anomalieVoce,
+            vociPresenti: vociConNuovoCodice.map(vx => ({ codice: vx.codice, tipo: vx.tipo }))
+          });
           return { ...v, anomalie: anomalieVoce };
         });
         
@@ -1381,20 +1520,59 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                                 
                                 if (prestazioneSuggerita) {
                                   const prestazione = prestazioniMap[prestazioneSuggerita];
+                                  const prezzoKey = `prezzo-${fattura.id}-${voce.id}`;
+                                  const prezzoTemp = prezzoTempProdottoOrfano[prezzoKey] ?? voce.importoNetto;
+                                  
                                   return (
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-xs text-gray-600">
-                                        Associa a: <strong>{prestazioneSuggerita}</strong> - {prestazione?.descrizione}
-                                      </span>
-                                      <button
-                                        onClick={() => {
-                                          console.log('Correggi prodotto orfano:', { fatturaId: fattura.id, voceId: voce.id, prestazione: prestazioneSuggerita });
-                                          handleAssociaPrestazione(fattura.id, voce.id, prestazioneSuggerita);
-                                        }}
-                                        className="px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700"
-                                      >
-                                        Correggi
-                                      </button>
+                                    <div className="space-y-2">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs text-gray-600">
+                                          Associa a: <strong>{prestazioneSuggerita}</strong> - {prestazione?.descrizione}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs text-gray-600">Prezzo:</span>
+                                        <input
+                                          type="number"
+                                          min="0.01"
+                                          step="0.01"
+                                          value={prezzoTemp}
+                                          onChange={(e) => {
+                                            const nuovoPrezzo = parseFloat(e.target.value) || 0;
+                                            setPrezzoTempProdottoOrfano(prev => ({
+                                              ...prev,
+                                              [prezzoKey]: nuovoPrezzo
+                                            }));
+                                          }}
+                                          className="w-20 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                          placeholder="0.00"
+                                        />
+                                        <span className="text-xs text-gray-600">€</span>
+                                        <button
+                                          onClick={() => {
+                                            console.log('Correggi prodotto orfano:', { 
+                                              fatturaId: fattura.id, 
+                                              voceId: voce.id, 
+                                              prestazione: prestazioneSuggerita,
+                                              prezzo: prezzoTemp
+                                            });
+                                            // Prima aggiorna il prezzo se necessario
+                                            if (prezzoTemp !== voce.importoNetto && prezzoTemp > 0) {
+                                              handleAggiornaPrezzoEAssociaPrestazione(fattura.id, voce.id, prezzoTemp, prestazioneSuggerita);
+                                            } else {
+                                              handleAssociaPrestazione(fattura.id, voce.id, prestazioneSuggerita);
+                                            }
+                                          }}
+                                          disabled={prezzoTemp <= 0}
+                                          className={`px-2 py-1 text-xs rounded ${
+                                            prezzoTemp > 0 
+                                              ? 'bg-purple-600 text-white hover:bg-purple-700' 
+                                              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                          }`}
+                                        >
+                                          Correggi
+                                        </button>
+                                      </div>
                                     </div>
                                   );
                                 } else {
@@ -1430,7 +1608,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                                   );
                                 }
                               })()}
-                              {anomalieVoce.includes('prestazione_duplicata') && voce.tipo === 'prestazione' && (
+                              {anomalieVoce.includes('prestazione_duplicata') && (voce.tipo === 'prestazione' || voce.tipo === 'macchinario') && (
                                 <button
                                   onClick={() => handleEliminaVoce(fattura.id, voce.id)}
                                   className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
@@ -1917,15 +2095,80 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   // Modal per correggere codice
   const ModalCorreggiCodice: React.FC<{
     codiceAttuale: string;
-    onConfirm: (nuovoCodice: string) => void;
+    voceCorrente: VoceFattura;
+    onConfirm: (nuovoCodice: string, prezzo?: number, quantita?: number) => void;
     onCancel: () => void;
-  }> = ({ codiceAttuale, onConfirm, onCancel }) => {
+  }> = ({ codiceAttuale, voceCorrente, onConfirm, onCancel }) => {
     const [nuovoCodice, setNuovoCodice] = useState(codiceAttuale);
+    const [prezzoSuggerito, setPrezzoSuggerito] = useState(voceCorrente.importoNetto || 0);
+    const [quantitaProdotto, setQuantitaProdotto] = useState(voceCorrente.quantita || 1);
     
-    const isValidCode = (code: string) => {
-      // Confronta il codice completo, non rimuovere la cifra iniziale
-      return combinazioni.some(c => c.codice === code);
+    // Analizza il codice inserito
+    const analizzaCodice = (code: string) => {
+      // Prima controlla se è nelle combinazioni
+      const combinazione = combinazioni.find(c => c.codice === code);
+      if (combinazione) {
+        const anomalie: string[] = [];
+        // Se è un prodotto, potrebbe causare anomalia prodotto_orfano
+        if (combinazione.tipo === 'prestazione+prodotto') {
+          anomalie.push('prodotto_orfano');
+        }
+        
+        return {
+          valido: true,
+          tipo: combinazione.tipo,
+          descrizione: getDescrizioneCombinazione(combinazione),
+          richiedePrezzo: combinazione.tipo === 'prestazione' || combinazione.tipo === 'prestazione+macchinario',
+          richiedeQuantita: combinazione.tipo === 'prestazione+prodotto',
+          possibiliAnomalie: anomalie,
+          unitaMisura: combinazione.tipo === 'prestazione+prodotto' ? prodottiMap[combinazione.accessorio!]?.unita : 
+                       combinazione.tipo === 'prestazione+macchinario' ? 'utilizzo' : 'prestazione',
+          prestazionePadre: combinazione.prestazione
+        };
+      }
+      
+      // Poi controlla se è una prestazione semplice
+      const prestazione = prestazioniMap[code];
+      if (prestazione) {
+        const possibiliAnomalie: string[] = [];
+        if (prestazione.richiedeMacchinario) {
+          possibiliAnomalie.push('prestazione_senza_macchinario');
+        }
+        if (prestazione.richiedeProdotti) {
+          possibiliAnomalie.push('prestazione_incompleta');
+        }
+        
+        return {
+          valido: true,
+          tipo: 'prestazione',
+          descrizione: prestazione.descrizione,
+          richiedePrezzo: true, // Sempre chiedi il prezzo per le prestazioni
+          richiedeQuantita: false,
+          possibiliAnomalie,
+          unitaMisura: 'prestazione',
+          prestazionePadre: undefined
+        };
+      }
+      
+      return { valido: false, tipo: null, descrizione: null, richiedePrezzo: false, possibiliAnomalie: [] as string[] };
     };
+    
+    const getDescrizioneCombinazione = (comb: any) => {
+      if (comb.tipo === 'prestazione') {
+        return prestazioniMap[comb.prestazione]?.descrizione || '';
+      } else if (comb.tipo === 'prestazione+prodotto') {
+        const prest = prestazioniMap[comb.prestazione];
+        const prod = prodottiMap[comb.accessorio];
+        return `${prest?.descrizione} - ${prod?.nome}`;
+      } else if (comb.tipo === 'prestazione+macchinario') {
+        const prest = prestazioniMap[comb.prestazione];
+        const macc = macchinari.find(m => m.codice === comb.accessorio);
+        return `${prest?.descrizione} - ${macc?.nome}`;
+      }
+      return '';
+    };
+    
+    const analisi = analizzaCodice(nuovoCodice);
     
     return (
       <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
@@ -1943,7 +2186,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             </p>
           </div>
           
-          <div className="mb-6">
+          <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Nuovo codice
             </label>
@@ -1952,18 +2195,82 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               value={nuovoCodice}
               onChange={(e) => setNuovoCodice(e.target.value.toUpperCase())}
               className={`w-full px-3 py-2 border rounded-lg text-sm font-mono ${
-                isValidCode(nuovoCodice) 
+                analisi.valido 
                   ? 'border-green-500 focus:ring-green-500' 
                   : 'border-gray-300 focus:ring-[#03A6A6]'
               } focus:border-transparent focus:ring-2`}
               placeholder="Es: RT, RTGG01, EM..."
             />
             {nuovoCodice && (
-              <p className={`mt-1 text-xs ${isValidCode(nuovoCodice) ? 'text-green-600' : 'text-red-600'}`}>
-                {isValidCode(nuovoCodice) ? '✓ Codice valido' : '✗ Codice non trovato nel database'}
-              </p>
+              <>
+                <p className={`mt-1 text-xs ${analisi.valido ? 'text-green-600' : 'text-red-600'}`}>
+                  {analisi.valido ? `✓ Codice valido: ${analisi.descrizione}` : '✗ Codice non trovato nel database'}
+                </p>
+                {analisi.valido && analisi.unitaMisura && (
+                  <p className="mt-1 text-xs text-blue-600">
+                    📏 Unità di misura: {analisi.unitaMisura}
+                  </p>
+                )}
+                {analisi.valido && analisi.possibiliAnomalie.includes('prodotto_orfano') && (
+                  <p className="mt-1 text-xs text-amber-600">
+                    ⚠ Attenzione: questo è un codice prodotto. Potrebbe generare anomalia "prodotto senza prestazione" se manca la prestazione {analisi.prestazionePadre} nella fattura
+                  </p>
+                )}
+                {analisi.valido && analisi.possibiliAnomalie.filter(a => a !== 'prodotto_orfano').length > 0 && (
+                  <p className="mt-1 text-xs text-amber-600">
+                    ⚠ Attenzione: questo codice potrebbe generare nuove anomalie
+                  </p>
+                )}
+              </>
             )}
           </div>
+          
+          {analisi.valido && analisi.richiedePrezzo && (
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Prezzo {analisi.tipo === 'prestazione+macchinario' ? 'macchinario' : 
+                       analisi.tipo === 'prestazione' ? 'prestazione' : ''}
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={prezzoSuggerito}
+                  onChange={(e) => setPrezzoSuggerito(parseFloat(e.target.value) || 0)}
+                  className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#03A6A6] focus:border-transparent"
+                  placeholder="0.00"
+                />
+                <span className="text-sm text-gray-600">€</span>
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                {analisi.tipo === 'prestazione+macchinario' ? 'Il macchinario' : 'La prestazione'} richiede un prezzo maggiore di zero
+              </p>
+            </div>
+          )}
+          
+          {analisi.valido && analisi.richiedeQuantita && (
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Quantità prodotto
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={quantitaProdotto}
+                  onChange={(e) => setQuantitaProdotto(parseInt(e.target.value) || 1)}
+                  className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#03A6A6] focus:border-transparent"
+                  placeholder="1"
+                />
+                <span className="text-sm text-gray-600">{analisi.unitaMisura}</span>
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Conferma la quantità per questo prodotto
+              </p>
+            </div>
+          )}
           
           <div className="flex justify-end gap-3">
             <button
@@ -1973,8 +2280,16 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               Annulla
             </button>
             <button
-              onClick={() => onConfirm(nuovoCodice)}
-              disabled={!isValidCode(nuovoCodice)}
+              onClick={() => {
+                if (analisi.richiedePrezzo && prezzoSuggerito > 0) {
+                  onConfirm(nuovoCodice, prezzoSuggerito);
+                } else if (analisi.richiedeQuantita) {
+                  onConfirm(nuovoCodice, undefined, quantitaProdotto);
+                } else {
+                  onConfirm(nuovoCodice);
+                }
+              }}
+              disabled={!analisi.valido || (analisi.richiedePrezzo && prezzoSuggerito <= 0)}
               className="px-4 py-2 text-sm bg-[#03A6A6] text-white rounded-lg hover:bg-[#028a8a] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Applica correzione
@@ -2643,13 +2958,20 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       )}
       
       {/* Modal Correggi Codice */}
-      {showCorreggiCodiceModal && (
-        <ModalCorreggiCodice
-          codiceAttuale={showCorreggiCodiceModal.codiceAttuale}
-          onConfirm={(nuovoCodice) => handleCorreggiCodice(showCorreggiCodiceModal.fatturaId, showCorreggiCodiceModal.voceId, nuovoCodice)}
-          onCancel={() => setShowCorreggiCodiceModal(null)}
-        />
-      )}
+      {showCorreggiCodiceModal && (() => {
+        const fattura = fatture.find(f => f.id === showCorreggiCodiceModal.fatturaId);
+        const voce = fattura?.voci?.find(v => v.id === showCorreggiCodiceModal.voceId);
+        if (!voce) return null;
+        
+        return (
+          <ModalCorreggiCodice
+            codiceAttuale={showCorreggiCodiceModal.codiceAttuale}
+            voceCorrente={voce}
+            onConfirm={(nuovoCodice, prezzo, quantita) => handleCorreggiCodice(showCorreggiCodiceModal.fatturaId, showCorreggiCodiceModal.voceId, nuovoCodice, prezzo, quantita)}
+            onCancel={() => setShowCorreggiCodiceModal(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
