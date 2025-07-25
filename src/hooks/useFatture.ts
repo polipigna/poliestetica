@@ -10,9 +10,12 @@ export function useFatture() {
 
   // Carica fatture all'init
   useEffect(() => {
+    console.log('useFatture useEffect - loading fatture...');
     const loadFatture = () => {
       try {
+        // Genera sempre nuove fatture con test anomalie
         const loadedFatture = FattureGenerator.load();
+        console.log('useFatture - loaded', loadedFatture.length, 'fatture');
         setFatture(loadedFatture);
       } catch (error) {
         console.error('Errore caricamento fatture:', error);
@@ -30,16 +33,22 @@ export function useFatture() {
 
   // Rigenera fatture con config personalizzata
   const regenerate = useCallback((config: FattureGeneratorConfig | 'test-anomalie') => {
+    console.log('regenerate called with:', config);
     setIsLoading(true);
     try {
       let newFatture: Fattura[];
       if (config === 'test-anomalie') {
+        console.log('Generating test anomalie...');
         newFatture = FattureGenerator.generateTestAnomalie();
+        console.log('Generated fatture:', newFatture.length);
+        console.log('Fatture with anomalie:', newFatture.filter(f => f.anomalie.length > 0).length);
       } else {
         newFatture = FattureGenerator.generate(config);
-        FattureGenerator.save();
       }
+      // Non serve chiamare save() perché sia generateTestAnomalie che generate lo fanno già
+      console.log('Saved to localStorage by generator');
       setFatture(newFatture);
+      console.log('State updated with', newFatture.length, 'fatture');
       return true;
     } catch (error) {
       console.error('Errore rigenerazione fatture:', error);
@@ -49,11 +58,16 @@ export function useFatture() {
     }
   }, []);
 
-  // Reset fatture (cancella e rigenera default)
+  // Reset fatture (cancella e rigenera con anomalie)
   const reset = useCallback(() => {
     setIsLoading(true);
     try {
-      const newFatture = FattureGenerator.reset();
+      // Cancella localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('poliestetica-fatture-mock');
+      }
+      // Genera sempre 200 fatture con test anomalie
+      const newFatture = FattureGenerator.generateTestAnomalie();
       setFatture(newFatture);
       return true;
     } catch (error) {

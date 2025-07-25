@@ -1,4 +1,4 @@
-import { Fattura } from '@/data/mock';
+import { Fattura, VoceFattura } from '@/data/mock';
 import { medici, pazienti } from '@/data/mock';
 import { generateVociFattura, calculateAnomalie, generateNumeroFattura } from './fattureHelpers';
 
@@ -28,11 +28,12 @@ export class FattureGenerator {
     // Prima genera tutte le fatture senza numero progressivo
     if (scenario === 'test-anomalie') {
       const anomalieScenari = [
-        { tipo: 'normale', count: Math.floor(numeroFatture * 0.55) },
+        { tipo: 'normale', count: Math.floor(numeroFatture * 0.50) },
         { tipo: 'medico_mancante', count: Math.floor(numeroFatture * 0.10) },
         { tipo: 'prodotto_con_prezzo', count: Math.floor(numeroFatture * 0.05) },
         { tipo: 'prodotto_orfano', count: Math.floor(numeroFatture * 0.05) },
-        { tipo: 'prestazione_incompleta', count: Math.floor(numeroFatture * 0.05) },
+        { tipo: 'prestazione_incompleta', count: Math.floor(numeroFatture * 0.04) },
+        { tipo: 'prestazione_senza_macchinario', count: Math.floor(numeroFatture * 0.05) },
         { tipo: 'prestazione_duplicata', count: Math.floor(numeroFatture * 0.03) },
         { tipo: 'codice_sconosciuto', count: Math.floor(numeroFatture * 0.03) },
         { tipo: 'unita_incompatibile', count: Math.floor(numeroFatture * 0.04) },
@@ -92,56 +93,33 @@ export class FattureGenerator {
     rangeGiorni: number,
     scenarioTipo?: string
   ): Fattura {
-    // Data casuale negli ultimi N giorni
-    const randomDays = Math.floor(Math.random() * rangeGiorni);
-    const dataFattura = new Date(startDate);
-    dataFattura.setDate(dataFattura.getDate() + randomDays);
-
-    // Seleziona paziente casuale
+    // 1. Genera data casuale
+    const dataFattura = this.generateRandomDate(startDate, rangeGiorni);
+    
+    // 2. Seleziona paziente
     const pazienteNome = pazienti[Math.floor(Math.random() * pazienti.length)];
     
-    // Seleziona medico (null per scenario medico_mancante)
-    let medicoId: number | null = null;
-    let medicoNome: string | null = null;
+    // 3. Gestione medico
+    const { medicoId, medicoNome } = this.generateMedico(scenarioTipo);
     
-    if (scenarioTipo !== 'medico_mancante') {
-      const medico = medici[Math.floor(Math.random() * medici.length)];
-      medicoId = medico.id;
-      medicoNome = `${medico.nome} ${medico.cognome}`;
-    }
-
-    // Serie fattura (60% P, 30% IVA, 10% M)
-    const serieRandom = Math.random();
-    const serie = serieRandom < 0.6 ? 'P' : serieRandom < 0.9 ? 'IVA' : 'M';
+    // 4. Determina serie e IVA
+    const { serie, conIva } = this.generateSerieAndIva();
     
-    // Determina se con IVA in base alla serie
-    const conIva = serie === 'IVA';
-
-    // Genera voci fattura
-    const numeroVoci = scenarioTipo ? 1 : Math.floor(Math.random() * 3) + 1;
-    const hasAnomalies = !!(scenarioTipo && scenarioTipo !== 'normale');
-    const voci = generateVociFattura(numeroVoci, hasAnomalies, scenarioTipo);
-
-    // Calcola totali
-    const imponibile = voci.reduce((sum, voce) => sum + voce.importoNetto, 0);
-    const iva = conIva ? imponibile * 0.22 : 0;
-    const totale = conIva ? imponibile + iva : imponibile; // Per P e M, totale = imponibile
-
-    // Calcola anomalie
-    const anomalie = calculateAnomalie(voci, medicoId, scenarioTipo);
-
-    // Determina stato
-    let stato: Fattura['stato'] = 'da_importare';
-    if (anomalie.length > 0) {
-      stato = 'anomalia';
-    }
-
-    // Il numero verrà assegnato dopo l'ordinamento
-    const numero = progressiviSerie ? generateNumeroFattura(progressiviSerie[serie]++, serie) : '';
+    // 5. Genera voci fattura basate sullo scenario
+    const voci = this.generateVociForScenario(scenarioTipo);
     
-    const fattura: Fattura = {
+    // 6. Calcola importi
+    const { imponibile, iva, totale } = this.calculateImporti(voci, conIva);
+    
+    // 7. Determina anomalie finali
+    const anomalie = this.determineAnomalie(voci, medicoId, scenarioTipo);
+    
+    // 8. Determina stato
+    const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
+    
+    return {
       id,
-      numero,
+      numero: '', // Assegnato successivamente
       serie,
       data: dataFattura.toISOString().split('T')[0],
       paziente: pazienteNome,
@@ -156,81 +134,202 @@ export class FattureGenerator {
       anomalie,
       voci
     };
-
-    return fattura;
+  }
+  
+  private static generateRandomDate(startDate: Date, rangeGiorni: number): Date {
+    const randomDays = Math.floor(Math.random() * rangeGiorni);
+    const date = new Date(startDate);
+    date.setDate(date.getDate() + randomDays);
+    return date;
+  }
+  
+  private static generateMedico(scenarioTipo?: string): { medicoId: number | null; medicoNome: string | null } {
+    if (scenarioTipo === 'medico_mancante') {
+      return { medicoId: null, medicoNome: null };
+    }
+    
+    const medico = medici[Math.floor(Math.random() * medici.length)];
+    return {
+      medicoId: medico.id,
+      medicoNome: `${medico.nome} ${medico.cognome}`
+    };
+  }
+  
+  private static generateSerieAndIva(): { serie: string; conIva: boolean } {
+    const random = Math.random();
+    const serie = random < 0.6 ? 'P' : random < 0.9 ? 'IVA' : 'M';
+    return { serie, conIva: serie === 'IVA' };
+  }
+  
+  private static generateVociForScenario(scenarioTipo?: string): VoceFattura[] {
+    if (!scenarioTipo || scenarioTipo === 'normale') {
+      const numeroVoci = Math.floor(Math.random() * 3) + 1;
+      return generateVociFattura(numeroVoci, false, 'normale');
+    }
+    
+    return generateVociFattura(1, true, scenarioTipo);
+  }
+  
+  private static calculateImporti(voci: VoceFattura[], conIva: boolean): { imponibile: number; iva: number; totale: number } {
+    const imponibile = voci.reduce((sum, voce) => sum + voce.importoNetto, 0);
+    const iva = conIva ? imponibile * 0.22 : 0;
+    const totale = imponibile + iva;
+    return { imponibile, iva, totale };
+  }
+  
+  private static determineAnomalie(voci: VoceFattura[], medicoId: number | null, scenarioTipo?: string): string[] {
+    if (scenarioTipo === 'normale') {
+      return [];
+    }
+    
+    // Per scenari specifici, ritorna SOLO l'anomalia richiesta
+    // senza calcolare altre anomalie che potrebbero interferire
+    if (scenarioTipo && scenarioTipo !== 'normale') {
+      switch (scenarioTipo) {
+        case 'medico_mancante':
+          return ['medico_mancante'];
+        case 'prodotto_con_prezzo':
+          return ['prodotto_con_prezzo'];
+        case 'prodotto_orfano':
+          return ['prodotto_orfano'];
+        case 'prestazione_incompleta':
+          return ['prestazione_incompleta'];
+        case 'prestazione_duplicata':
+          return ['prestazione_duplicata'];
+        case 'prestazione_senza_macchinario':
+          return ['prestazione_senza_macchinario'];
+        case 'codice_sconosciuto':
+          return ['codice_sconosciuto'];
+        case 'unita_incompatibile':
+          return ['unita_incompatibile'];
+        case 'quantita_anomala':
+          return ['quantita_anomala'];
+        default:
+          return [scenarioTipo];
+      }
+    }
+    
+    // Solo per fatture senza scenario specifico, calcola anomalie
+    return calculateAnomalie(voci, medicoId);
   }
 
   static generateTestAnomalie(): Fattura[] {
-    const fatture: Fattura[] = [];
+    const TOTALE_FATTURE = 200;
+    const ANOMALIE_PER_TIPO = 8;
     const tipiAnomalie = [
       'medico_mancante',
       'prodotto_con_prezzo', 
       'prodotto_orfano',
       'prestazione_incompleta',
+      'prestazione_senza_macchinario',
       'prestazione_duplicata',
       'codice_sconosciuto',
       'unita_incompatibile',
       'quantita_anomala'
     ];
     
+    const fatture: Fattura[] = [];
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - 90);
     
-    // Genera 7 fatture per ogni tipo di anomalia (56 totali)
-    for (const tipoAnomalia of tipiAnomalie) {
-      for (let i = 0; i < 7; i++) {
-        const fattura = this.generateSingleFattura(
+    // 1. Genera esattamente 8 fatture per ogni tipo di anomalia (64 totali)
+    tipiAnomalie.forEach(tipoAnomalia => {
+      for (let i = 0; i < ANOMALIE_PER_TIPO; i++) {
+        const fattura = this.generateFatturaConAnomalia(
           fatture.length + 1,
-          null,
           startDate,
-          90,
           tipoAnomalia
         );
         fatture.push(fattura);
       }
-    }
+    });
     
-    // Genera 144 fatture normali
-    for (let i = 0; i < 144; i++) {
-      const fattura = this.generateSingleFattura(
+    // 2. Genera le rimanenti fatture normali (136 fatture)
+    const fattureNormaliDaGenerare = TOTALE_FATTURE - fatture.length;
+    for (let i = 0; i < fattureNormaliDaGenerare; i++) {
+      const fattura = this.generateFatturaNormale(
         fatture.length + 1,
-        null,
-        startDate,
-        90,
-        'normale'
+        startDate
       );
       fatture.push(fattura);
     }
     
-    // Mescola casualmente
-    for (let i = fatture.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [fatture[i], fatture[j]] = [fatture[j], fatture[i]];
-    }
+    // 3. Mescola casualmente per distribuzione naturale
+    this.shuffleArray(fatture);
     
-    // Ordina per data crescente (dalla più vecchia alla più recente)
+    // 4. Ordina per data e assegna numeri progressivi
     fatture.sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
     
-    // Contatori progressivi separati per serie
-    const progressiviSerie = {
-      'P': 1000,
-      'IVA': 2000,
-      'M': 3000
-    };
-    
-    // Assegna i numeri progressivi in ordine cronologico
-    fatture.forEach((fattura, i) => {
-      fattura.id = i + 1;
+    const progressiviSerie = { 'P': 1000, 'IVA': 2000, 'M': 3000 };
+    fatture.forEach((fattura, index) => {
+      fattura.id = index + 1;
       const numeroProgressivo = progressiviSerie[fattura.serie as keyof typeof progressiviSerie]++;
       fattura.numero = generateNumeroFattura(numeroProgressivo, fattura.serie);
     });
     
-    // Riordina per data decrescente per la visualizzazione
+    // 5. Riordina per data decrescente per visualizzazione
     fatture.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
     
+    // 6. Log di verifica
+    this.logDistribuzioneAnomalie(fatture);
+    
     this.fatture = fatture;
-    this.save();
     return fatture;
+  }
+  
+  private static generateFatturaConAnomalia(
+    id: number,
+    startDate: Date,
+    tipoAnomalia: string
+  ): Fattura {
+    const fattura = this.generateSingleFattura(id, null, startDate, 90, tipoAnomalia);
+    
+    // Garantisci che l'anomalia sia presente
+    if (!fattura.anomalie.includes(tipoAnomalia)) {
+      fattura.anomalie = [tipoAnomalia];
+      fattura.stato = 'anomalia';
+    }
+    
+    return fattura;
+  }
+  
+  private static generateFatturaNormale(
+    id: number,
+    startDate: Date
+  ): Fattura {
+    const fattura = this.generateSingleFattura(id, null, startDate, 90, 'normale');
+    
+    // Garantisci che non ci siano anomalie
+    fattura.anomalie = [];
+    fattura.stato = 'da_importare';
+    
+    return fattura;
+  }
+  
+  private static shuffleArray<T>(array: T[]): void {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [array[i], array[j]] = [array[j], array[i]];
+    }
+  }
+  
+  private static logDistribuzioneAnomalie(fatture: Fattura[]): void {
+    const conteggio: Record<string, number> = {};
+    let totaleConAnomalie = 0;
+    
+    fatture.forEach(f => {
+      if (f.anomalie.length > 0) {
+        totaleConAnomalie++;
+        f.anomalie.forEach(a => {
+          conteggio[a] = (conteggio[a] || 0) + 1;
+        });
+      }
+    });
+    
+    console.log('=== GENERAZIONE FATTURE COMPLETATA ===');
+    console.log(`Totale fatture: ${fatture.length}`);
+    console.log(`Fatture con anomalie: ${totaleConAnomalie}`);
+    console.log('Distribuzione anomalie:', conteggio);
   }
 
   static save(): void {
@@ -242,25 +341,30 @@ export class FattureGenerator {
   static load(): Fattura[] {
     if (typeof window === 'undefined') return [];
 
-    const stored = localStorage.getItem(this.STORAGE_KEY);
-    if (stored) {
-      try {
-        this.fatture = JSON.parse(stored);
-        return this.fatture;
-      } catch (e) {
-        console.error('Errore caricamento fatture:', e);
+    // Genera sempre nuove fatture con test anomalie ad ogni caricamento
+    const newFatture = this.generateTestAnomalie();
+    console.log('FattureGenerator.load() - Generate', newFatture.length, 'fatture');
+    
+    // Conta anomalie per debug
+    const conteggioAnomalie: Record<string, number> = {};
+    newFatture.forEach(f => {
+      if (f.anomalie && f.anomalie.length > 0) {
+        f.anomalie.forEach(a => {
+          conteggioAnomalie[a] = (conteggioAnomalie[a] || 0) + 1;
+        });
       }
-    }
-
-    // Se non ci sono fatture salvate, genera default
-    return this.generate({ numeroFatture: 200 });
+    });
+    
+    console.log('Distribuzione anomalie:', conteggioAnomalie);
+    
+    return newFatture;
   }
 
   static reset(): Fattura[] {
     if (typeof window !== 'undefined') {
       localStorage.removeItem(this.STORAGE_KEY);
     }
-    return this.generate({ numeroFatture: 200 });
+    return this.generateTestAnomalie();
   }
 
   static export(): string {

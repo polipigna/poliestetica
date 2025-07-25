@@ -5,10 +5,8 @@ export function generateVociFattura(
   hasAnomalies: boolean,
   scenario?: string
 ): VoceFattura[] {
-  const voci: VoceFattura[] = [];
-  
-  // Gestione scenari specifici
-  if (scenario) {
+  // Per scenari specifici di anomalia, usa le funzioni helper dedicate
+  if (scenario && scenario !== 'normale' && scenario !== 'medico_mancante') {
     switch (scenario) {
       case 'prodotto_con_prezzo':
         return generateProdottoConPrezzo();
@@ -18,30 +16,32 @@ export function generateVociFattura(
         return generatePrestazioneIncompleta();
       case 'prestazione_duplicata':
         return generatePrestazioneDuplicata();
+      case 'prestazione_senza_macchinario':
+        return generatePrestazioneSenzaMacchinario();
       case 'codice_sconosciuto':
         return generateCodiceSconsciuto();
       case 'unita_incompatibile':
         return generateUnitaIncompatibile();
       case 'quantita_anomala':
         return generateQuantitaAnomala();
-      case 'normale':
-        hasAnomalies = false;
-        break;
     }
   }
   
+  // Per fatture normali o medico_mancante, genera voci standard
+  return generateVociStandard(numeroVoci);
+}
+
+function generateVociStandard(numeroVoci: number): VoceFattura[] {
+  const voci: VoceFattura[] = [];
   const prestazioniDisponibili = [...prestazioni];
   
   for (let i = 0; i < numeroVoci && prestazioniDisponibili.length > 0; i++) {
-    // Seleziona prestazione casuale
     const indexPrestazione = Math.floor(Math.random() * prestazioniDisponibili.length);
     const prestazione = prestazioniDisponibili[indexPrestazione];
     prestazioniDisponibili.splice(indexPrestazione, 1);
 
-    // Importo prestazione (100-1000 euro)
     const importoPrestazione = Math.round((Math.random() * 900 + 100) / 10) * 10;
 
-    // Crea voce prestazione
     const vocePrestazione: VoceFattura = {
       id: voci.length + 1,
       codice: prestazione.codice,
@@ -56,16 +56,13 @@ export function generateVociFattura(
 
     voci.push(vocePrestazione);
 
-    // Se la prestazione richiede prodotti
+    // Aggiungi prodotti se la prestazione li richiede
     if (prestazione.richiedeProdotti) {
-      // Ottieni prodotti compatibili per questa prestazione
-      const prodottiCompatibili = prodotti.filter(p => {
-        // Verifica se esiste una combinazione valida prestazione+prodotto
-        return isCodiceValido(prestazione.codice + p.codice);
-      });
+      const prodottiCompatibili = prodotti.filter(p => 
+        isCodiceValido(prestazione.codice + p.codice)
+      );
 
       if (prodottiCompatibili.length > 0) {
-        // Numero di prodotti da aggiungere (1-2)
         const numeroProdotti = Math.min(
           Math.floor(Math.random() * 2) + 1,
           prodottiCompatibili.length
@@ -76,159 +73,176 @@ export function generateVociFattura(
           .slice(0, numeroProdotti);
 
         for (const prodotto of prodottiSelezionati) {
+          let quantita = generateQuantitaStandard(prodotto.unita);
 
-        // Usa l'unità del prodotto dal sistema
-        let unita = prodotto.unita;
+          const voceProdotto: VoceFattura = {
+            id: voci.length + 1,
+            codice: prestazione.codice + prodotto.codice,
+            descrizione: `${prestazione.descrizione} - ${prodotto.nome}`,
+            tipo: 'prodotto',
+            prestazionePadre: prestazione.codice,
+            importoNetto: 0,
+            importoLordo: 0,
+            quantita,
+            unita: prodotto.unita,
+            anomalie: []
+          };
 
-        // Quantità realistica basata su unità
-        let quantita = 1;
-        if (unita === 'fiala') {
-          quantita = Math.floor(Math.random() * 3) + 1; // 1-3 fiale
-        } else if (unita === 'ml') {
-          quantita = [1, 2, 5, 10][Math.floor(Math.random() * 4)]; // quantità standard
-        } else if (unita === 'siringa') {
-          quantita = Math.floor(Math.random() * 2) + 1; // 1-2 siringhe
-        }
-
-        // Anomalie prodotto
-        let importoProdotto = 0;
-        const anomalieProdotto: string[] = [];
-
-        // 10% prodotti con prezzo (anomalia)
-        if (hasAnomalies && Math.random() < 0.1) {
-          importoProdotto = Math.round(Math.random() * 50 + 10);
-          anomalieProdotto.push('prodotto_con_prezzo');
-        }
-
-        // 15% quantità anomala - usa la soglia del prodotto
-        if (hasAnomalies && Math.random() < 0.15) {
-          quantita = prodotto.sogliaAnomalia + Math.floor(Math.random() * 50) + 10;
-          anomalieProdotto.push('quantita_anomala');
-        }
-
-        const voceProdotto: VoceFattura = {
-          id: voci.length + 1,
-          codice: prestazione.codice + prodotto.codice,
-          descrizione: `${prestazione.descrizione} - ${prodotto.nome}`,
-          tipo: 'prodotto',
-          prestazionePadre: prestazione.codice,
-          importoNetto: importoProdotto,
-          importoLordo: importoProdotto,
-          quantita,
-          unita,
-          anomalie: anomalieProdotto
-        };
-
-        voci.push(voceProdotto);
+          voci.push(voceProdotto);
         }
       }
-    } else if (hasAnomalies && prestazione.richiedeProdotti && Math.random() < 0.2) {
-      // 20% prestazioni che richiedono prodotti ma non li hanno (anomalia)
-      vocePrestazione.anomalie.push('prestazione_incompleta');
-    }
-
-    // Prodotto orfano (anomalia)
-    if (hasAnomalies && Math.random() < 0.05 && i === numeroVoci - 1) {
-      const prodottoOrfano = prodotti[Math.floor(Math.random() * prodotti.length)];
-      const voceOrfana: VoceFattura = {
-        id: voci.length + 1,
-        codice: prodottoOrfano.codice,
-        descrizione: prodottoOrfano.nome,
-        tipo: 'prodotto',
-        importoNetto: 0,
-        importoLordo: 0,
-        quantita: 1,
-        unita: 'unità',
-        anomalie: ['prodotto_orfano']
-      };
-      voci.push(voceOrfana);
     }
   }
 
   return voci;
 }
 
+function generateQuantitaStandard(unita: string): number {
+  switch (unita) {
+    case 'fiala':
+      return Math.floor(Math.random() * 3) + 1; // 1-3
+    case 'ml':
+      return [1, 2, 5, 10][Math.floor(Math.random() * 4)];
+    case 'siringa':
+      return Math.floor(Math.random() * 2) + 1; // 1-2
+    default:
+      return 1;
+  }
+}
+
 export function calculateAnomalie(
   voci: VoceFattura[], 
-  medicoId: number | null,
-  scenario?: string
+  medicoId: number | null
 ): string[] {
   const anomalie: string[] = [];
 
-  // Medico mancante
+  // 1. Medico mancante
   if (!medicoId) {
     anomalie.push('medico_mancante');
   }
 
-  // Raccogli anomalie dalle voci
-  const anomalieVoci = voci.flatMap(v => v.anomalie);
-  
-  // Aggiungi anomalie uniche
-  anomalieVoci.forEach(a => {
-    if (!anomalie.includes(a)) {
-      anomalie.push(a);
-    }
+  // 2. Anomalie già presenti nelle voci
+  voci.forEach(voce => {
+    voce.anomalie.forEach(a => {
+      if (!anomalie.includes(a)) {
+        anomalie.push(a);
+      }
+    });
   });
 
-  // Verifica prestazioni duplicate
+  // 3. Verifica prestazioni duplicate
   const prestazioniCodici = voci
     .filter(v => v.tipo === 'prestazione')
     .map(v => v.codice);
   
-  const duplicati = prestazioniCodici.filter((codice, index) => 
+  const hasDuplicati = prestazioniCodici.some((codice, index) => 
     prestazioniCodici.indexOf(codice) !== index
   );
   
-  if (duplicati.length > 0) {
+  if (hasDuplicati) {
     anomalie.push('prestazione_duplicata');
   }
 
-  // Verifica codici validi
-  const codiciNonValidi = voci.filter(v => {
+  // 4. Verifica codici sconosciuti
+  const hasCodiciInvalidi = voci.some(v => {
     const parsed = parseCodiceFattura(v.codice);
-    return !isCodiceValido(parsed.prestazione + (parsed.accessorio || ''));
+    // Un codice è sconosciuto se:
+    // 1. Non è valido secondo il parser
+    // 2. O non è riconosciuto nel sistema delle combinazioni valide
+    if (!parsed.valido) return true;
+    
+    // Per le prestazioni, verifica se il codice esiste
+    if (v.tipo === 'prestazione') {
+      const prestazioneValida = prestazioni.some(p => p.codice === v.codice);
+      return !prestazioneValida;
+    }
+    
+    // Per i prodotti, verifica la combinazione
+    return !isCodiceValido(v.codice);
   });
 
-  if (codiciNonValidi.length > 0) {
+  if (hasCodiciInvalidi) {
     anomalie.push('codice_sconosciuto');
   }
 
-  // Verifica unità compatibili per prodotti
+  // 5. Verifica unità incompatibili e quantità anomale per prodotti
   voci.forEach(voce => {
     if (voce.tipo === 'prodotto') {
       const parsed = parseCodiceFattura(voce.codice);
       if (parsed.valido && parsed.accessorio && parsed.isProdotto) {
         const prodotto = prodottiMap[parsed.accessorio];
-        if (prodotto && prodotto.unita !== voce.unita) {
-          if (!anomalie.includes('unita_incompatibile')) {
-            anomalie.push('unita_incompatibile');
-          }
-          // Aggiungi anomalia anche alla voce specifica
-          if (!voce.anomalie.includes('unita_incompatibile')) {
-            voce.anomalie.push('unita_incompatibile');
-          }
+        
+        // Unità incompatibile
+        if (prodotto && prodotto.unita !== voce.unita && !anomalie.includes('unita_incompatibile')) {
+          anomalie.push('unita_incompatibile');
+        }
+        
+        // Quantità anomala
+        if (isQuantitaAnomala(parsed.accessorio, voce.quantita) && !anomalie.includes('quantita_anomala')) {
+          anomalie.push('quantita_anomala');
         }
       }
     }
   });
 
-  // Verifica quantità anomale per prodotti
-  voci.forEach(voce => {
-    if (voce.tipo === 'prodotto') {
-      const parsed = parseCodiceFattura(voce.codice);
-      if (parsed.valido && parsed.accessorio && parsed.isProdotto) {
-        if (isQuantitaAnomala(parsed.accessorio, voce.quantita)) {
-          if (!anomalie.includes('quantita_anomala')) {
-            anomalie.push('quantita_anomala');
+  // 6. Verifica prodotti orfani
+  const hasProdottoOrfano = voci.some(v => 
+    v.tipo === 'prodotto' && !v.prestazionePadre
+  );
+  
+  if (hasProdottoOrfano && !anomalie.includes('prodotto_orfano')) {
+    anomalie.push('prodotto_orfano');
+  }
+
+  // 7. Verifica prodotti con prezzo
+  const hasProdottoConPrezzo = voci.some(v => 
+    v.tipo === 'prodotto' && v.importoNetto > 0
+  );
+  
+  if (hasProdottoConPrezzo && !anomalie.includes('prodotto_con_prezzo')) {
+    anomalie.push('prodotto_con_prezzo');
+  }
+
+  // 8. Verifica prestazioni incomplete
+  const prestazioniCheBisognanoProdotti = prestazioni
+    .filter(p => p.richiedeProdotti)
+    .map(p => p.codice);
+    
+  const prestazioniCheBisognanoMacchinari = prestazioni
+    .filter(p => p.richiedeMacchinario)
+    .map(p => p.codice);
+    
+  const hasPrestazioneIncompleta = voci.some(voce => {
+    if (voce.tipo === 'prestazione') {
+      // Verifica se richiede prodotti
+      if (prestazioniCheBisognanoProdotti.includes(voce.codice)) {
+        const hasProdotti = voci.some(v => 
+          v.tipo === 'prodotto' && v.prestazionePadre === voce.codice
+        );
+        if (!hasProdotti) return true;
+      }
+      
+      // Verifica se richiede macchinari
+      if (prestazioniCheBisognanoMacchinari.includes(voce.codice)) {
+        const hasMacchinari = voci.some(v => {
+          // Cerca voci che abbiano il codice della prestazione + codice macchinario
+          return v.codice.startsWith(voce.codice) && v.codice !== voce.codice;
+        });
+        if (!hasMacchinari) {
+          // Usa una diversa anomalia per macchinari mancanti
+          if (!anomalie.includes('prestazione_senza_macchinario')) {
+            anomalie.push('prestazione_senza_macchinario');
           }
-          // Aggiungi anomalia anche alla voce specifica se non presente
-          if (!voce.anomalie.includes('quantita_anomala')) {
-            voce.anomalie.push('quantita_anomala');
-          }
+          return false; // Non è prestazione_incompleta
         }
       }
     }
+    return false;
   });
+  
+  if (hasPrestazioneIncompleta && !anomalie.includes('prestazione_incompleta')) {
+    anomalie.push('prestazione_incompleta');
+  }
 
   return anomalie;
 }
@@ -239,12 +253,13 @@ export function generateNumeroFattura(progressivo: number, serie: string): strin
   return `${serie}/${anno}/${numero}`;
 }
 
-// Helper functions per generare specifiche anomalie
+// ========== HELPER FUNCTIONS PER SCENARI DI ANOMALIA ==========
+
 function generateProdottoConPrezzo(): VoceFattura[] {
   return [
     {
       id: 1,
-      codice: '3FLL',
+      codice: 'FLL',
       descrizione: 'Filler labbra',
       tipo: 'prestazione',
       importoNetto: 300,
@@ -255,10 +270,10 @@ function generateProdottoConPrezzo(): VoceFattura[] {
     },
     {
       id: 2,
-      codice: '3FLLAFL',
+      codice: 'FLLAFL',
       descrizione: 'Filler labbra - Acido ialuronico',
       tipo: 'prodotto',
-      prestazionePadre: '3FLL',
+      prestazionePadre: 'FLL',
       importoNetto: 50, // ANOMALIA: prodotto con prezzo
       importoLordo: 61,
       quantita: 2,
@@ -272,9 +287,10 @@ function generateProdottoOrfano(): VoceFattura[] {
   return [
     {
       id: 1,
-      codice: 'AFL', // ANOMALIA: prodotto senza prestazione
-      descrizione: 'Acido ialuronico',
+      codice: 'FLLAFL', // Codice prodotto valido ma senza prestazione FLL
+      descrizione: 'Filler labbra - Acido ialuronico',
       tipo: 'prodotto',
+      prestazionePadre: undefined, // Manca la prestazione padre
       importoNetto: 0,
       importoLordo: 0,
       quantita: 2,
@@ -288,11 +304,11 @@ function generatePrestazioneIncompleta(): VoceFattura[] {
   return [
     {
       id: 1,
-      codice: '3FLL', // Prestazione che richiede prodotti ma non li ha
+      codice: 'FLL', // Prestazione che richiede prodotti ma non li ha
       descrizione: 'Filler labbra',
       tipo: 'prestazione',
       importoNetto: 300,
-      importoLordo: 366,
+      importoLordo: 300,
       quantita: 1,
       unita: 'prestazione',
       anomalie: ['prestazione_incompleta']
@@ -304,147 +320,135 @@ function generatePrestazioneDuplicata(): VoceFattura[] {
   return [
     {
       id: 1,
-      codice: '2BOT',
-      descrizione: 'Botulino',
+      codice: '2TOX',
+      descrizione: 'Tossina bruxismo',
       tipo: 'prestazione',
       importoNetto: 350,
-      importoLordo: 427,
+      importoLordo: 350,
       quantita: 1,
       unita: 'prestazione',
       anomalie: []
     },
     {
       id: 2,
-      codice: '2BOT', // ANOMALIA: stesso codice prestazione
-      descrizione: 'Botulino',
+      codice: '2TOX', // Stesso codice prestazione (duplicato)
+      descrizione: 'Tossina bruxismo',
       tipo: 'prestazione',
       importoNetto: 350,
-      importoLordo: 427,
+      importoLordo: 350,
       quantita: 1,
       unita: 'prestazione',
-      anomalie: ['prestazione_duplicata']
+      anomalie: []
     }
   ];
 }
 
-function generateCodiceSconsciuto(): VoceFattura[] {
+function generatePrestazioneSenzaMacchinario(): VoceFattura[] {
+  // Usa prestazioni che richiedono macchinario
+  const prestazioniConMacchinario = ['RMT', 'RMM', 'EPL', 'RMC', 'RNV', 'RMP'];
+  const codicePrestazione = prestazioniConMacchinario[Math.floor(Math.random() * prestazioniConMacchinario.length)];
+  
   return [
     {
       id: 1,
-      codice: '9XXX', // ANOMALIA: codice non nel sistema
-      descrizione: 'Trattamento sconosciuto',
+      codice: codicePrestazione, // Es: RMM - Rimozione macchie
+      descrizione: getDescrizionePrestazione(codicePrestazione),
       tipo: 'prestazione',
-      importoNetto: 200,
-      importoLordo: 244,
+      importoNetto: 350,
+      importoLordo: 350,
       quantita: 1,
       unita: 'prestazione',
+      anomalie: ['prestazione_senza_macchinario']
+    }
+    // Manca intenzionalmente la voce del macchinario (es: RMMCHR)
+  ];
+}
+
+function generateCodiceSconsciuto(): VoceFattura[] {
+  // Array di codici che NON esistono nelle combinazioni
+  // ATTENZIONE: RMM, RMT, EPL sono codici VALIDI che richiedono macchinario
+  const codiciNonValidi = ['XXX', 'YYY', 'ZZZ', 'ABC', 'DEF', 'GHI', 'JKL', 'MNO'];
+  const codiceInvalido = codiciNonValidi[Math.floor(Math.random() * codiciNonValidi.length)];
+  
+  return [
+    {
+      id: 1,
+      codice: codiceInvalido, // Codice non valido nel sistema
+      descrizione: `${codiceInvalido} - Codice non riconosciuto`,
+      tipo: 'prodotto',
+      prestazionePadre: undefined,
+      importoNetto: 0,
+      importoLordo: 0,
+      quantita: 2,
+      unita: 'fiala',
       anomalie: ['codice_sconosciuto']
     }
   ];
 }
 
-function generateUnitaIncompatibile(): VoceFattura[] {
-  // Trova un prodotto con unità 'ml' per creare l'anomalia
-  const prodottoMl = prodotti.find(p => p.unita === 'ml' && isCodiceValido('3FLL' + p.codice));
-  if (!prodottoMl) {
-    // Fallback nel caso non trovi prodotti adatti
-    return generateProdottoConPrezzo();
-  }
+function getDescrizionePrestazione(codice: string): string {
+  const descrizioni: Record<string, string> = {
+    'RMT': 'Rimozione tatuaggi',
+    'RMM': 'Rimozione macchie',
+    'EPL': 'Epilazione',
+    'RMC': 'Rimozione cicatrici',
+    'RNV': 'Ringiovanimento viso',
+    'RMP': 'Rimozione capillari'
+  };
+  return descrizioni[codice] || 'Prestazione';
+}
 
+function generateUnitaIncompatibile(): VoceFattura[] {
   return [
     {
       id: 1,
-      codice: '3FLL',
-      descrizione: 'Filler labbra',
+      codice: '1TOX',
+      descrizione: 'Tossina iperidrosi',
       tipo: 'prestazione',
       importoNetto: 400,
-      importoLordo: 488,
+      importoLordo: 400,
       quantita: 1,
       unita: 'prestazione',
       anomalie: []
     },
     {
       id: 2,
-      codice: '3FLL' + prodottoMl.codice,
-      descrizione: `Filler labbra - ${prodottoMl.nome}`,
+      codice: '1TOXVEX', // VEX usa 'unità', non 'fiala'
+      descrizione: 'Tossina iperidrosi - Vistabex',
       tipo: 'prodotto',
-      prestazionePadre: '3FLL',
+      prestazionePadre: '1TOX',
       importoNetto: 0,
       importoLordo: 0,
       quantita: 2,
-      unita: 'fiala', // ANOMALIA: il prodotto ha unità 'ml'
+      unita: 'fiala', // Unità sbagliata: VEX usa 'unità'
       anomalie: ['unita_incompatibile']
     }
   ];
 }
 
 function generateQuantitaAnomala(): VoceFattura[] {
-  // Lista di combinazioni valide note per generare quantità anomale
-  const combinazioniValide = [
-    { prestazione: 'FLL', prodotto: 'AFL', descPrest: 'Filler labbra' },
-    { prestazione: 'FLV', prodotto: 'AEV', descPrest: 'Filler viso' },
-    { prestazione: '1TOX', prodotto: 'VEX', descPrest: 'Tossina botulinica 100U' },
-    { prestazione: '2TOX', prodotto: 'BCO', descPrest: 'Tossina botulinica 50U' }
-  ];
-  
-  // Seleziona una combinazione casuale
-  const combo = combinazioniValide[Math.floor(Math.random() * combinazioniValide.length)];
-  const prodotto = prodotti.find(p => p.codice === combo.prodotto);
-  
-  if (!prodotto) {
-    // Fallback con valori hardcoded per garantire quantità anomala
-    return [
-      {
-        id: 1,
-        codice: 'FLL',
-        descrizione: 'Filler labbra',
-        tipo: 'prestazione',
-        importoNetto: 400,
-        importoLordo: 488,
-        quantita: 1,
-        unita: 'prestazione',
-        anomalie: []
-      },
-      {
-        id: 2,
-        codice: 'FLLAFL',
-        descrizione: 'Filler labbra - Acido ialuronico',
-        tipo: 'prodotto',
-        prestazionePadre: 'FLL',
-        importoNetto: 0,
-        importoLordo: 0,
-        quantita: 200, // Quantità molto alta per garantire anomalia
-        unita: 'fiala',
-        anomalie: ['quantita_anomala']
-      }
-    ];
-  }
-
-  // Genera quantità sicuramente anomala (molto alta)
-  const quantitaAnomala = Math.max(100, prodotto.sogliaAnomalia * 10 + Math.floor(Math.random() * 100));
-
   return [
     {
       id: 1,
-      codice: combo.prestazione,
-      descrizione: combo.descPrest,
+      codice: 'FLL',
+      descrizione: 'Filler labbra',
       tipo: 'prestazione',
       importoNetto: 400,
-      importoLordo: 488,
+      importoLordo: 400,
       quantita: 1,
       unita: 'prestazione',
       anomalie: []
     },
     {
       id: 2,
-      codice: combo.prestazione + combo.prodotto,
-      descrizione: `${combo.descPrest} - ${prodotto.nome}`,
+      codice: 'FLLAFL',
+      descrizione: 'Filler labbra - Acido ialuronico',
       tipo: 'prodotto',
-      prestazionePadre: combo.prestazione,
+      prestazionePadre: 'FLL',
       importoNetto: 0,
       importoLordo: 0,
-      quantita: quantitaAnomala,
-      unita: prodotto.unita,
+      quantita: 500, // Quantità anomala (soglia normale: 10)
+      unita: 'fiala',
       anomalie: ['quantita_anomala']
     }
   ];

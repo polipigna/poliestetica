@@ -77,7 +77,7 @@ export interface VoceFattura {
   id: number;
   codice: string;
   descrizione: string;
-  tipo: 'prestazione' | 'prodotto';
+  tipo: 'prestazione' | 'prodotto' | 'macchinario';
   prestazionePadre?: string;
   importoNetto: number;
   importoLordo: number;
@@ -212,14 +212,8 @@ export function isCodiceValido(codice: string): boolean {
  * Parsa un codice fattura [N]PPP[MMM]
  */
 export function parseCodiceFattura(codice: string) {
-  // Prima cerca il codice completo (con eventuale cifra iniziale)
-  let combinazione = combinazioni.find(c => c.codice === codice);
-  
-  // Se non trova, prova rimuovendo la cifra IVA iniziale se presente
-  if (!combinazione) {
-    const codiceUtile = codice.replace(/^\d/, '');
-    combinazione = combinazioni.find(c => c.codice === codiceUtile);
-  }
+  // Cerca solo il codice esatto nelle combinazioni
+  const combinazione = combinazioni.find(c => c.codice === codice);
   
   if (combinazione) {
     return {
