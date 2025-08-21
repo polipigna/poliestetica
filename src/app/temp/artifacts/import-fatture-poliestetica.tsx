@@ -62,12 +62,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   // Usa le fatture dai props
   const [fatture, setFatture] = useState<FatturaConVoci[]>(fattureProps);
   
-  // Aggiorna lo stato locale quando cambiano le props
-  useEffect(() => {
-    console.log('fattureProps updated:', fattureProps.length);
-    setFatture(fattureProps);
-  }, [fattureProps]);
-  
   // REMOVED - Will be added after getAnomalieFattura is defined
   
   // Crea una mappa delle prestazioni per accesso rapido
@@ -255,14 +249,11 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     };
   }, []);
   
-  // Stato per indicare se le fatture sono state inizializzate
-  const [fattureInizializzate, setFattureInizializzate] = useState(false);
 
-  // Aggiorna fatture con anomalie solo all'inizializzazione
+  // Ricalcola sempre le anomalie quando cambiano le props
   useEffect(() => {
-    if (!fattureInizializzate) {
-      // IMPORTANTE: Preserva le anomalie già calcolate dal backend
-      // Non ricalcolare le anomalie per le voci che già le hanno
+    // Il componente è responsabile del calcolo delle anomalie
+    // Ignora le anomalie dal generator e ricalcola sempre
       const fattureConAnomalie = fattureProps.map(f => {
         // Prima calcola le anomalie per ogni voce se non le hanno già
         const vociConAnomalie = f.voci ? f.voci.map(voce => {
@@ -308,9 +299,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         return { ...f, voci: vociConAnomalie, stato: stato as any, anomalie: anomalieUniche };
       });
       setFatture(fattureConAnomalie);
-      setFattureInizializzate(true);
-    }
-  }, [fattureProps, fattureInizializzate, verificaAnomalieVoce]);
+  }, [fattureProps, verificaAnomalieVoce]);
   
   // Conteggio filtri attivi
   const filtriAttivi = useMemo(() => {
