@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   RefreshCw,
   Check,
@@ -16,7 +16,9 @@ import {
   Users,
   UserX,
   FileSpreadsheet,
-  FileUp
+  FileUp,
+  Info,
+  Calendar
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import type { Fattura, Medico, Prestazione, Prodotto, VoceFattura, Macchinario } from '@/data/mock';
@@ -99,6 +101,16 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
   const [vistaRaggruppata, setVistaRaggruppata] = useState(false);
+  
+  // Stati per import file
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [showMappingModal, setShowMappingModal] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [fileData, setFileData] = useState<any[]>([]);
+  const [fileColumns, setFileColumns] = useState<string[]>([]);
+  const [fieldMapping, setFieldMapping] = useState<Record<string, string>>({});
+  const [dataFiltro, setDataFiltro] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [showImportSummary, setShowImportSummary] = useState(false);
   const [importSummary, setImportSummary] = useState<{ count: number; nuove: number; aggiornate: number } | null>(null);
   const [showSyncSummary, setShowSyncSummary] = useState(false);
@@ -114,6 +126,293 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   // Mock stati
   const lastSync = '15 minuti fa';
 
+  // Funzione per processare il file Excel
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    // Verifica estensione file
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+    if (!['xls', 'xlsx'].includes(fileExtension || '')) {
+      alert('Per favore seleziona un file Excel (.xls o .xlsx)');
+      if (event.target) event.target.value = '';
+      return;
+    }
+    
+    setUploadedFile(file);
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = e.target?.result;
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        
+        if (jsonData.length > 4) {
+          // I nomi dei campi sono alla riga 4 (indice 3 nell'array)
+          const headerRow = 3; // Riga 4 in Excel = indice 3 nell'array (0-based)
+          const headers = (jsonData[headerRow] as any[]).filter(h => h !== undefined && h !== null);
+          
+          // Verifica che ci siano headers validi
+          if (headers.length === 0) {
+            alert('Il file Excel non contiene intestazioni valide alla riga 4');
+            if (event.target) event.target.value = '';
+            return;
+          }
+          
+          console.log('Headers trovati alla riga 4:', headers);
+          setFileColumns(headers.map(h => String(h).trim()));
+          
+          // Converti in array di oggetti partendo dalla riga 5 (indice 4)
+          const dataRows = jsonData.slice(headerRow + 1).map((row: any) => {
+            const obj: any = {};
+            headers.forEach((header, index) => {
+              if (row[index] !== undefined && row[index] !== null) {
+                obj[String(header).trim()] = row[index];
+              }
+            });
+            return obj;
+          }).filter(row => Object.keys(row).length > 0); // Filtra righe vuote
+          
+          if (dataRows.length === 0) {
+            alert('Il file Excel non contiene dati validi dopo la riga 5');
+            if (event.target) event.target.value = '';
+            return;
+          }
+          
+          console.log('Numero righe dati trovate:', dataRows.length);
+          console.log('Prima riga dati:', dataRows[0]);
+          
+          setFileData(dataRows);
+          setShowImportDialog(false);
+          setShowMappingModal(true);
+          
+          // Inizializza mapping automatico basato su nomi simili
+          initializeAutoMapping(headers.map(h => String(h).trim()));
+        } else {
+          alert('Il file Excel deve contenere almeno 5 righe (headers alla riga 4 + dati)');
+          if (event.target) event.target.value = '';
+        }
+      } catch (error) {
+        console.error('Errore nella lettura del file:', error);
+        alert('Errore nella lettura del file. Assicurati che sia un file Excel valido.');
+        if (event.target) event.target.value = '';
+      }
+    };
+    
+    reader.readAsArrayBuffer(file);
+  };
+  
+  // Inizializza mapping automatico
+  const initializeAutoMapping = (headers: string[]) => {
+    const mapping: Record<string, string> = {};
+    const campiSistema = [
+      { key: 'numero', patterns: ['numero', 'n.', 'n°', 'numero fattura', 'n fattura'] },
+      { key: 'data', patterns: ['data', 'emissione', 'data documento', 'data fattura'] },
+      { key: 'paziente', patterns: ['cliente', 'paziente', 'nominativo', 'intestatario', 'ragione sociale', 'denominazione'] },
+      { key: 'codice', patterns: ['codice', 'articolo', 'cod.', 'servizio', 'cod', 'codice articolo'] },
+      { key: 'serie', patterns: ['serie', 'serie fattura', 'serie documento'] },
+      { key: 'quantita', patterns: ['quantità', 'quantita', 'qta', 'q.tà', 'qt', 'qty'] },
+      { key: 'unita', patterns: ['u.m.', 'um', 'unità', 'unita', 'unità misura', 'unita misura'] },
+      { key: 'importo', patterns: ['prezzo totale', 'importo', 'prezzo', 'totale', 'imponibile', 'netto'] },
+      { key: 'iva', patterns: ['iva', 'imposta', 'aliquota', 'tax', '% iva'] }
+    ];
+    
+    console.log('Headers disponibili per mapping:', headers);
+    
+    campiSistema.forEach(campo => {
+      const matchedHeader = headers.find(h => {
+        // Controlla che h sia definito e sia una stringa
+        if (!h || typeof h !== 'string') return false;
+        const headerLower = h.toLowerCase().trim();
+        return campo.patterns.some(p => {
+          const patternLower = p.toLowerCase();
+          // Controlla corrispondenza esatta o parziale
+          return headerLower === patternLower || headerLower.includes(patternLower);
+        });
+      });
+      if (matchedHeader) {
+        console.log(`Mappato campo ${campo.key} -> ${matchedHeader}`);
+        mapping[campo.key] = matchedHeader;
+      }
+    });
+    
+    setFieldMapping(mapping);
+  };
+  
+  // Processa i dati importati
+  const processImportedData = () => {
+    if (!fieldMapping.numero || !fieldMapping.data) {
+      alert('Per favore mappa almeno i campi Numero Fattura e Data');
+      return;
+    }
+    
+    console.log('Dati da processare:', fileData.length, 'righe');
+    console.log('Field mapping:', fieldMapping);
+    console.log('Esempio prima riga:', fileData[0]);
+    
+    // Filtra per data se specificato
+    let dataFiltered = [...fileData];
+    if (dataFiltro) {
+      const filterDate = new Date(dataFiltro);
+      console.log('Filtro data attivo:', dataFiltro, 'filterDate:', filterDate);
+      dataFiltered = fileData.filter(row => {
+        // Gestisce le date in formato Excel (numero seriale)
+        let dataFattura;
+        const dataValue = row[fieldMapping.data];
+        
+        if (typeof dataValue === 'number') {
+          // È un numero seriale di Excel (giorni dal 1/1/1900)
+          // Excel usa 1/1/1900 come giorno 1, ma c'è un bug storico per cui conta anche il 29/2/1900
+          // Quindi sottraiamo 25569 giorni per convertire al timestamp Unix
+          const excelEpoch = new Date(1899, 11, 30); // 30/12/1899
+          dataFattura = new Date(excelEpoch.getTime() + dataValue * 24 * 60 * 60 * 1000);
+        } else {
+          // Prova a parsare come stringa normale
+          dataFattura = new Date(dataValue);
+        }
+        
+        console.log('Confronto date:', dataValue, '->', dataFattura, '>', filterDate, dataFattura > filterDate);
+        return dataFattura > filterDate;
+      });
+      console.log('Dopo filtro data:', dataFiltered.length, 'righe');
+    }
+    
+    // Converti i dati nel formato fatture
+    const nuoveFatture = dataFiltered.map((row, index) => {
+      const voci: VoceFatturaEstesa[] = [];
+      
+      // Se abbiamo mappato codice, crea una voce
+      if (fieldMapping.codice && row[fieldMapping.codice]) {
+        const codice = row[fieldMapping.codice];
+        const importoNetto = parseFloat(row[fieldMapping.importo]) || 0;
+        
+        // Determina la descrizione dal codice
+        let descrizione = '';
+        const prestazione = prestazioniMap[codice];
+        const prodotto = prodottiMap[codice];
+        const combinazione = combinazioni.find(c => c.codice === codice);
+        
+        if (prestazione) {
+          descrizione = prestazione.descrizione;
+        } else if (prodotto) {
+          descrizione = prodotto.nome;
+        } else if (combinazione) {
+          if (combinazione.tipo === 'prestazione+prodotto') {
+            const prest = prestazioniMap[combinazione.prestazione];
+            const prod = prodottiMap[combinazione.accessorio!];
+            descrizione = `${prest?.descrizione || ''} - ${prod?.nome || ''}`;
+          } else if (combinazione.tipo === 'prestazione+macchinario') {
+            const prest = prestazioniMap[combinazione.prestazione];
+            const macc = macchinari.find(m => m.codice === combinazione.accessorio);
+            descrizione = `${prest?.descrizione || ''} - ${macc?.nome || ''}`;
+          }
+        } else {
+          descrizione = codice; // Se non trovato, usa il codice stesso
+        }
+        
+        // Determina l'unità di misura
+        let unita = row[fieldMapping.unita] || '';
+        if (!unita && prodotto) {
+          unita = prodotto.unita; // Default dal prodotto se vuoto
+        } else if (!unita) {
+          unita = 'pz'; // Default generico
+        }
+        
+        voci.push({
+          id: Date.now() + index,
+          codice: codice,
+          descrizione: descrizione,
+          quantita: parseFloat(row[fieldMapping.quantita]) || 1,
+          unita: unita,
+          importoNetto: importoNetto,
+          importoLordo: importoNetto,
+          tipo: 'prestazione',
+          anomalie: []
+        });
+      }
+      
+      // Gestione serie: usa quella mappata o default 'P' (principale)
+      let serie = row[fieldMapping.serie] || 'P';
+      if (serie === 'P') serie = 'principale';
+      
+      // Calcola importo e IVA dal file
+      const imponibile = parseFloat(row[fieldMapping.importo]) || 0;
+      let iva = 0;
+      let totale = imponibile;
+      
+      // Se c'è il campo IVA mappato, lo usa per il calcolo
+      if (fieldMapping.iva && row[fieldMapping.iva]) {
+        iva = parseFloat(row[fieldMapping.iva]) || 0;
+        totale = imponibile + iva;
+      }
+      
+      // Gestisce le date in formato Excel (numero seriale)
+      let dataFormatted;
+      let dataEmissione;
+      const dataValue = row[fieldMapping.data];
+      
+      if (typeof dataValue === 'number') {
+        // È un numero seriale di Excel
+        const excelEpoch = new Date(1899, 11, 30);
+        const dataDate = new Date(excelEpoch.getTime() + dataValue * 24 * 60 * 60 * 1000);
+        dataFormatted = dataDate.toLocaleDateString('it-IT');
+        dataEmissione = dataDate.toISOString().split('T')[0];
+      } else {
+        const dataDate = new Date(dataValue);
+        dataFormatted = dataDate.toLocaleDateString('it-IT');
+        dataEmissione = dataValue;
+      }
+      
+      const fattura: FatturaConVoci = {
+        id: Date.now() + index,
+        numero: row[fieldMapping.numero],
+        data: dataFormatted,
+        dataEmissione: dataEmissione,
+        paziente: row[fieldMapping.paziente] || '',
+        clienteNome: row[fieldMapping.paziente] || '',
+        medicoId: null,
+        medicoNome: null,
+        imponibile: imponibile,
+        iva: iva,
+        totale: totale,
+        conIva: iva > 0,
+        importata: false,
+        stato: 'da_importare',
+        serie: serie,
+        voci,
+        anomalie: []
+      };
+      
+      // Calcola anomalie
+      const anomalieCalcolate = calculateAnomalie(voci, null);
+      fattura.anomalie = anomalieCalcolate;
+      if (anomalieCalcolate.length > 0) {
+        fattura.stato = 'anomalia';
+      }
+      
+      return fattura;
+    });
+    
+    console.log('Fatture create:', nuoveFatture.length);
+    console.log('Esempio prima fattura:', nuoveFatture[0]);
+    
+    // Aggiungi le nuove fatture
+    setFatture([...fatture, ...nuoveFatture]);
+    
+    // Chiudi modal e resetta
+    setShowMappingModal(false);
+    setUploadedFile(null);
+    setFileData([]);
+    setFileColumns([]);
+    setFieldMapping({});
+    setDataFiltro('');
+    
+    alert(`Importate ${nuoveFatture.length} fatture. Eventuali anomalie sono state rilevate.`);
+  };
+  
   // Reset della pagina corrente quando cambiano i filtri o la vista
   useEffect(() => {
     setCurrentPage(1);
@@ -2564,7 +2863,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             <div className="flex items-center gap-2">
               {/* Pulsanti Import/Export sempre visibili */}
               <button
-                onClick={() => alert('Funzionalità Import in sviluppo')}
+                onClick={() => setShowImportDialog(true)}
                 className="px-3 py-2 text-sm bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2"
                 title="Importa dati da file Excel"
               >
@@ -3006,6 +3305,189 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           />
         );
       })()}
+      
+      {/* Dialog Import File */}
+      {showImportDialog && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <div className="flex items-center gap-3 mb-4">
+              <Info className="w-6 h-6 text-blue-500" />
+              <h3 className="text-lg font-semibold text-gray-900">Importa Fatture da Excel</h3>
+            </div>
+            
+            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800 mb-2">
+                <strong>Per scaricare il file da Fattura in Cloud:</strong>
+              </p>
+              <ol className="list-decimal list-inside text-sm text-blue-700 space-y-1">
+                <li>Vai su Fattura in Cloud</li>
+                <li>Seleziona "Fatture"</li>
+                <li>Clicca su "Dettaglio righe" in basso a destra</li>
+                <li>Scarica il file Excel</li>
+              </ol>
+            </div>
+            
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">
+                Formati supportati: <strong>.xls</strong> o <strong>.xlsx</strong>
+              </p>
+            </div>
+            
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xls,.xlsx"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex-1 px-4 py-2 bg-[#03A6A6] text-white rounded-lg hover:bg-[#028a8a] flex items-center justify-center gap-2"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                Seleziona File
+              </button>
+              <button
+                onClick={() => setShowImportDialog(false)}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+              >
+                Annulla
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Modal Mappatura Campi */}
+      {showMappingModal && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Mappatura Campi - {uploadedFile?.name}
+            </h3>
+            
+            <div className="mb-6">
+              <p className="text-sm text-gray-600 mb-4">
+                Associa i campi del file Excel con i campi richiesti dal sistema. 
+                I campi contrassegnati con * sono obbligatori.
+              </p>
+              
+              {/* Filtro data */}
+              <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <Calendar className="w-4 h-4" />
+                  Importa solo fatture emesse dopo il:
+                </label>
+                <input
+                  type="date"
+                  value={dataFiltro}
+                  onChange={(e) => setDataFiltro(e.target.value)}
+                  className="mt-2 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  La data specificata non sarà inclusa (solo date successive)
+                </p>
+              </div>
+              
+              {/* Tabella mappatura */}
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-4 font-medium text-sm text-gray-700 pb-2 border-b">
+                  <div>Campo Sistema</div>
+                  <div>Campo File Excel</div>
+                </div>
+                
+                {[
+                  { key: 'numero', label: 'Numero Fattura *', required: true },
+                  { key: 'data', label: 'Data Emissione *', required: true },
+                  { key: 'paziente', label: 'Paziente/Cliente', required: false },
+                  { key: 'serie', label: 'Serie Sistema', required: false },
+                  { key: 'codice', label: 'Codice Articolo', required: false },
+                  { key: 'quantita', label: 'Quantità', required: false },
+                  { key: 'unita', label: 'Unità di Misura', required: false },
+                  { key: 'importo', label: 'Importo/Prezzo', required: false }
+                ].map(campo => (
+                  <div key={campo.key} className="grid grid-cols-2 gap-4 items-center">
+                    <div className="text-sm">
+                      {campo.label}
+                      {campo.required && <span className="text-red-500 ml-1">*</span>}
+                    </div>
+                    <select
+                      value={fieldMapping[campo.key] || ''}
+                      onChange={(e) => setFieldMapping({
+                        ...fieldMapping,
+                        [campo.key]: e.target.value
+                      })}
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
+                    >
+                      <option value="">-- Seleziona campo --</option>
+                      {fileColumns.map((col, index) => (
+                        <option key={`${col}-${index}`} value={col}>{col}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            {/* Anteprima dati */}
+            {fileData.length > 0 && (
+              <div className="mb-4">
+                <h4 className="text-sm font-medium text-gray-700 mb-2">
+                  Anteprima dati ({fileData.length} righe totali)
+                </h4>
+                <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        {fileColumns.slice(0, 5).map((col, index) => (
+                          <th key={`header-${col}-${index}`} className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                            {col}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {fileData.slice(0, 3).map((row, idx) => (
+                        <tr key={`row-${idx}`}>
+                          {fileColumns.slice(0, 5).map((col, colIndex) => (
+                            <td key={`cell-${idx}-${colIndex}`} className="px-3 py-2 text-sm text-gray-900">
+                              {row[col] || '-'}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowMappingModal(false);
+                  setUploadedFile(null);
+                  setFileData([]);
+                  setFileColumns([]);
+                  setFieldMapping({});
+                }}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={processImportedData}
+                disabled={!fieldMapping.numero || !fieldMapping.data}
+                className="px-4 py-2 bg-[#03A6A6] text-white rounded-lg hover:bg-[#028a8a] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Processa e Importa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
