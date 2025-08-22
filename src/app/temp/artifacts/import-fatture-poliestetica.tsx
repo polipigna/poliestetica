@@ -559,6 +559,11 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   // Ricalcola sempre le anomalie quando cambiano le props
   useEffect(() => {
+    // Preserva le fatture importate localmente (hanno ID generati con Date.now())
+    // Gli ID generati da Date.now() sono molto grandi (> 1700000000000 nel 2024)
+    // mentre le fatture mock hanno ID bassi (1-200)
+    const fattureImportateLocalmente = fatture.filter(f => f.id > 1000000000000);
+    
     // Il componente è responsabile del calcolo delle anomalie
     // Ignora le anomalie dal generator e ricalcola sempre
       const fattureConAnomalie = fattureProps.map(f => {
@@ -605,7 +610,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         
         return { ...f, voci: vociConAnomalie, stato: stato as any, anomalie: anomalieUniche };
       });
-      setFatture(fattureConAnomalie);
+      
+      // Combina le fatture dal parent (aggiornate) con quelle importate localmente
+      setFatture([...fattureConAnomalie, ...fattureImportateLocalmente]);
   }, [fattureProps, verificaAnomalieVoce]);
   
   // Conteggio filtri attivi
