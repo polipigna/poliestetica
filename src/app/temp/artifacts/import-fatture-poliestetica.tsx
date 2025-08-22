@@ -14,8 +14,11 @@ import {
   Package,
   AlertTriangle,
   Users,
-  UserX
+  UserX,
+  FileSpreadsheet,
+  FileUp
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import type { Fattura, Medico, Prestazione, Prodotto, VoceFattura, Macchinario } from '@/data/mock';
 import { 
   parseCodiceFattura, 
@@ -110,6 +113,11 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   // Mock stati
   const lastSync = '15 minuti fa';
+
+  // Reset della pagina corrente quando cambiano i filtri o la vista
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filtroStato, filtroAnomalia, filtroMedico, filtroSerie, filtroDataDa, filtroDataA, vistaRaggruppata]);
 
   // Funzione per verificare anomalie voci - Mossa prima di useMemo per evitare hoisting issues
   const verificaAnomalieVoce = useMemo(() => {
@@ -1288,26 +1296,65 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   }, [fatture]);
 
   // Export functions
-  const handleExportSelected = () => {
-    const selectedData = fatture.filter(f => selectedFatture.includes(f.id));
+  const handleExportXLSX = () => {
+    // Prepara i dati per l'export - tutte le voci delle fatture filtrate
+    const exportData: any[] = [];
     
-    // Per export CSV
-    const csv = [
-      ['Numero', 'Data', 'Paziente', 'Medico', 'Importo Netto', 'IVA', 'Importo Lordo', 'Stato'],
-      ...selectedData.map(f => [
-        f.numero,
-        f.data,
-        f.paziente,
-        f.medicoNome || '',
-        f.imponibile.toFixed(2),
-        f.iva.toFixed(2),
-        f.totale.toFixed(2),
-        f.stato
-      ])
+    fattureFiltered.forEach(fattura => {
+      if (!fattura.voci) return;
+      
+      fattura.voci.forEach(voce => {
+        exportData.push({
+          'Numero Fattura': fattura.numero || '',
+          'Serie': fattura.serie || '',
+          'Data Emissione': fattura.dataEmissione || fattura.data || '',
+          'Cliente': fattura.clienteNome || fattura.paziente || '',
+          'Medico': fattura.medicoNome || '',
+          'Stato Fattura': fattura.stato || '',
+          'Codice': voce.codice || '',
+          'Descrizione': voce.descrizione || '',
+          'Tipo': voce.tipo || '',
+          'Quantità': voce.quantita || 0,
+          'Unità': voce.unita || '',
+          'Importo Netto': voce.importoNetto || 0,
+          'Importo Lordo': voce.importoLordo || 0,
+          'Anomalie': voce.anomalie ? voce.anomalie.join(', ') : ''
+        });
+      });
+    });
+    
+    // Crea un nuovo workbook
+    const wb = XLSX.utils.book_new();
+    
+    // Crea un worksheet dai dati
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    
+    // Imposta le larghezze delle colonne
+    const columnWidths = [
+      { wch: 15 }, // Numero Fattura
+      { wch: 8 },  // Serie
+      { wch: 12 }, // Data
+      { wch: 25 }, // Cliente
+      { wch: 20 }, // Medico
+      { wch: 15 }, // Stato
+      { wch: 20 }, // Codice
+      { wch: 35 }, // Descrizione
+      { wch: 12 }, // Tipo
+      { wch: 10 }, // Quantità
+      { wch: 10 }, // Unità
+      { wch: 12 }, // Importo Netto
+      { wch: 12 }, // Importo Lordo
+      { wch: 30 }  // Anomalie
     ];
+    ws['!cols'] = columnWidths;
     
-    // Download CSV (mock)
-    console.log('Exporting CSV:', csv);
+    // Aggiungi il worksheet al workbook
+    XLSX.utils.book_append_sheet(wb, ws, 'Voci Fatture');
+    
+    // Genera il file e scaricalo
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const fileName = `export_voci_fatture_${timestamp}.xlsx`;
+    XLSX.writeFile(wb, fileName);
   };
 
   // Funzione non utilizzata - commentata
@@ -2500,19 +2547,46 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             
             {/* Seconda riga: Azioni e vista */}
             <div className="flex items-center justify-between">
-              <button
-                onClick={() => setVistaRaggruppata(!vistaRaggruppata)}
-                className={`px-3 py-2 text-sm rounded-lg border flex items-center gap-2 ${
-                  vistaRaggruppata 
-                    ? 'bg-[#03A6A6] text-white border-[#03A6A6]' 
-                    : 'bg-white text-gray-700 border-gray-300'
-                } hover:border-[#03A6A6] transition-colors`}
-              >
-                <Users className="w-4 h-4" />
-                Raggruppa per medico
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setVistaRaggruppata(!vistaRaggruppata)}
+                  className={`px-3 py-2 text-sm rounded-lg border flex items-center gap-2 ${
+                    vistaRaggruppata 
+                      ? 'bg-[#03A6A6] text-white border-[#03A6A6]' 
+                      : 'bg-white text-gray-700 border-gray-300'
+                  } hover:border-[#03A6A6] transition-colors`}
+                >
+                  <Users className="w-4 h-4" />
+                  Raggruppa per medico
+                </button>
+              </div>
             
             <div className="flex items-center gap-2">
+              {/* Pulsanti Import/Export sempre visibili */}
+              <button
+                onClick={() => alert('Funzionalità Import in sviluppo')}
+                className="px-3 py-2 text-sm bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2"
+                title="Importa dati da file Excel"
+              >
+                <FileUp className="w-4 h-4" />
+                Import
+              </button>
+              
+              <button
+                onClick={handleExportXLSX}
+                className="px-3 py-2 text-sm bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2"
+                title="Esporta voci fatture filtrate in Excel"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                Export
+              </button>
+              
+              {/* Separatore */}
+              {selectedFatture.length > 0 && (
+                <div className="h-6 w-px bg-gray-300 mx-2" />
+              )}
+              
+              {/* Azioni per selezione */}
               {selectedFatture.length > 0 && (
                 <>
                   <span className="text-sm text-gray-600 mr-2">
