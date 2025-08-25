@@ -289,28 +289,56 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         const codice = row[fieldMapping.codice];
         const importoNetto = parseFloat(row[fieldMapping.importo]) || 0;
         
-        // Determina la descrizione dal codice
+        // Determina la descrizione dal codice e il tipo
         let descrizione = '';
+        let tipo: 'prestazione' | 'prodotto' | 'macchinario' = 'prestazione';
+        let prestazionePadre: string | undefined;
+        
         const prestazione = prestazioniMap[codice];
         const prodotto = prodottiMap[codice];
         const combinazione = combinazioni.find(c => c.codice === codice);
         
+        // Usa parseCodiceFattura per determinare se il codice è valido
+        const parsed = parseCodiceFattura(codice);
+        
         if (prestazione) {
           descrizione = prestazione.descrizione;
+          tipo = 'prestazione';
         } else if (prodotto) {
           descrizione = prodotto.nome;
+          tipo = 'prodotto';
+          // Estrai la prestazione padre dal codice prodotto
+          if (parsed.isProdotto && parsed.prestazione) {
+            prestazionePadre = parsed.prestazione;
+          }
         } else if (combinazione) {
           if (combinazione.tipo === 'prestazione+prodotto') {
             const prest = prestazioniMap[combinazione.prestazione];
             const prod = prodottiMap[combinazione.accessorio!];
             descrizione = `${prest?.descrizione || ''} - ${prod?.nome || ''}`;
+            tipo = 'prodotto';
+            prestazionePadre = combinazione.prestazione;
           } else if (combinazione.tipo === 'prestazione+macchinario') {
             const prest = prestazioniMap[combinazione.prestazione];
             const macc = macchinari.find(m => m.codice === combinazione.accessorio);
             descrizione = `${prest?.descrizione || ''} - ${macc?.nome || ''}`;
+            tipo = 'macchinario';
+            prestazionePadre = combinazione.prestazione;
+          } else if (combinazione.tipo === 'prestazione') {
+            // Combinazione di tipo prestazione
+            tipo = 'prestazione';
+            descrizione = prestazioniMap[combinazione.prestazione]?.descrizione || codice;
           }
         } else {
-          descrizione = codice; // Se non trovato, usa il codice stesso
+          // Codice sconosciuto
+          descrizione = codice;
+          // Se parseCodiceFattura dice che è un prodotto, mantieni quel tipo
+          if (parsed.isProdotto) {
+            tipo = 'prodotto';
+            if (parsed.prestazione) {
+              prestazionePadre = parsed.prestazione;
+            }
+          }
         }
         
         // Determina l'unità di misura
@@ -329,8 +357,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           unita: unita,
           importoNetto: importoNetto,
           importoLordo: importoNetto,
-          tipo: 'prestazione',
-          anomalie: []
+          tipo: tipo,
+          prestazionePadre: prestazionePadre,
+          anomalie: [] // Verranno calcolate dopo
         });
       }
       
@@ -386,10 +415,17 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         anomalie: []
       };
       
-      // Calcola anomalie
-      const anomalieCalcolate = calculateAnomalie(voci, null);
-      fattura.anomalie = anomalieCalcolate;
-      if (anomalieCalcolate.length > 0) {
+      // Calcola anomalie delle voci
+      const vociConAnomalie = voci.map(voce => {
+        const anomalieVoce = verificaAnomalieVoce(voce, voci);
+        return { ...voce, anomalie: anomalieVoce };
+      });
+      fattura.voci = vociConAnomalie;
+      
+      // Calcola anomalie della fattura
+      const anomalieFattura = getAnomalieFattura(fattura);
+      fattura.anomalie = anomalieFattura;
+      if (anomalieFattura.length > 0) {
         fattura.stato = 'anomalia';
       }
       
@@ -559,60 +595,75 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   // Ricalcola sempre le anomalie quando cambiano le props
   useEffect(() => {
-    // Preserva le fatture importate localmente (hanno ID generati con Date.now())
+    // Identifica le fatture importate localmente (hanno ID generati con Date.now())
     // Gli ID generati da Date.now() sono molto grandi (> 1700000000000 nel 2024)
     // mentre le fatture mock hanno ID bassi (1-200)
     const fattureImportateLocalmente = fatture.filter(f => f.id > 1000000000000);
     
-    // Il componente è responsabile del calcolo delle anomalie
-    // Ignora le anomalie dal generator e ricalcola sempre
-      const fattureConAnomalie = fattureProps.map(f => {
-        // Prima calcola le anomalie per ogni voce se non le hanno già
-        const vociConAnomalie = f.voci ? f.voci.map(voce => {
-          // Se la voce ha già anomalie calcolate, preservale
-          if (voce.anomalie && voce.anomalie.length > 0) {
-            return voce;
-          }
-          // Altrimenti calcola le anomalie per questa voce
-          const anomalieVoce = verificaAnomalieVoce(voce, f.voci || []);
-          return { ...voce, anomalie: anomalieVoce };
-        }) : [];
-        
-        // Ora calcola le anomalie della fattura basandosi sulle voci aggiornate
-        const anomalieEsistenti: string[] = [];
-        
-        if (!f.medicoId) {
-          anomalieEsistenti.push('medico_mancante');
+    // Funzione per ricalcolare le anomalie di una fattura
+    const ricalcolaAnomalieFattura = (f: FatturaConVoci) => {
+      // Prima calcola le anomalie per ogni voce
+      const vociConAnomalie = f.voci ? f.voci.map(voce => {
+        const anomalieVoce = verificaAnomalieVoce(voce, f.voci || []);
+        return { ...voce, anomalie: anomalieVoce };
+      }) : [];
+      
+      // Ora calcola le anomalie della fattura basandosi sulle voci aggiornate
+      const anomalieEsistenti: string[] = [];
+      
+      if (!f.medicoId) {
+        anomalieEsistenti.push('medico_mancante');
+      }
+      
+      // Raccogli anomalie dalle voci
+      vociConAnomalie.forEach(voce => {
+        if (voce.anomalie && voce.anomalie.length > 0) {
+          anomalieEsistenti.push(...voce.anomalie);
         }
-        
-        // Raccogli anomalie dalle voci
-        vociConAnomalie.forEach(voce => {
-          if (voce.anomalie && voce.anomalie.length > 0) {
-            anomalieEsistenti.push(...voce.anomalie);
-          }
-        });
-        
-        // Verifica prestazioni duplicate a livello fattura
-        const codiciPrestazioni = vociConAnomalie
-          .filter(v => v.tipo === 'prestazione')
-          .map(v => v.codice);
-        
-        const hasDuplicati = codiciPrestazioni.some((codice, index) => 
-          codiciPrestazioni.indexOf(codice) !== index
-        );
-        
-        if (hasDuplicati) {
-          anomalieEsistenti.push('prestazione_duplicata');
-        }
-        
-        const anomalieUniche = [...new Set(anomalieEsistenti)];
-        const stato = anomalieUniche.length > 0 ? 'anomalia' : (f.stato === 'importata' ? 'importata' : 'da_importare');
-        
-        return { ...f, voci: vociConAnomalie, stato: stato as any, anomalie: anomalieUniche };
       });
       
-      // Combina le fatture dal parent (aggiornate) con quelle importate localmente
-      setFatture([...fattureConAnomalie, ...fattureImportateLocalmente]);
+      // Verifica prestazioni duplicate a livello fattura
+      const codiciPrestazioni = vociConAnomalie
+        .filter(v => v.tipo === 'prestazione')
+        .map(v => v.codice);
+      
+      const hasDuplicati = codiciPrestazioni.some((codice, index) => 
+        codiciPrestazioni.indexOf(codice) !== index
+      );
+      
+      if (hasDuplicati) {
+        anomalieEsistenti.push('prestazione_duplicata');
+      }
+      
+      const anomalieUniche = [...new Set(anomalieEsistenti)];
+      const stato = anomalieUniche.length > 0 ? 'anomalia' : (f.stato === 'importata' ? 'importata' : 'da_importare');
+      
+      return { ...f, voci: vociConAnomalie, stato: stato as any, anomalie: anomalieUniche };
+    };
+    
+    // Ricalcola le anomalie per le fatture dal parent
+    const fatturePropsConAnomalie = fattureProps.map(ricalcolaAnomalieFattura);
+    
+    // Per le fatture importate localmente: 
+    // - Se una fattura è stata modificata dall'utente (ha già voci con anomalie definite), preservala
+    // - Altrimenti ricalcola le anomalie (es. fatture appena importate)
+    const fattureImportateProcessate = fattureImportateLocalmente.map(fattura => {
+      // Controlla se questa fattura ha già avuto le anomalie processate
+      // (cioè se l'utente ha fatto delle correzioni)
+      const isProcessata = fattura.voci && fattura.voci.length > 0 && 
+                          fattura.voci.every(v => v.anomalie !== undefined);
+      
+      // Se la fattura è già stata processata/corretta, preservala così com'è
+      if (isProcessata && fattura.stato !== undefined) {
+        return fattura;
+      }
+      
+      // Altrimenti ricalcola le anomalie (fattura appena importata)
+      return ricalcolaAnomalieFattura(fattura);
+    });
+    
+    // Combina tutte le fatture
+    setFatture([...fatturePropsConAnomalie, ...fattureImportateProcessate]);
   }, [fattureProps, verificaAnomalieVoce]);
   
   // Conteggio filtri attivi
