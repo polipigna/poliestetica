@@ -280,108 +280,134 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       console.log('Dopo filtro data:', dataFiltered.length, 'righe');
     }
     
-    // Converti i dati nel formato fatture
-    const nuoveFatture = dataFiltered.map((row, index) => {
-      const voci: VoceFatturaEstesa[] = [];
-      
-      // Se abbiamo mappato codice, crea una voce
-      if (fieldMapping.codice && row[fieldMapping.codice]) {
-        const codice = row[fieldMapping.codice];
-        const importoNetto = parseFloat(row[fieldMapping.importo]) || 0;
-        
-        // Determina la descrizione dal codice e il tipo
-        let descrizione = '';
-        let tipo: 'prestazione' | 'prodotto' | 'macchinario' = 'prestazione';
-        let prestazionePadre: string | undefined;
-        
-        const prestazione = prestazioniMap[codice];
-        const prodotto = prodottiMap[codice];
-        const combinazione = combinazioni.find(c => c.codice === codice);
-        
-        // Usa parseCodiceFattura per determinare se il codice è valido
-        const parsed = parseCodiceFattura(codice);
-        
-        if (prestazione) {
-          descrizione = prestazione.descrizione;
-          tipo = 'prestazione';
-        } else if (prodotto) {
-          descrizione = prodotto.nome;
-          tipo = 'prodotto';
-          // Estrai la prestazione padre dal codice prodotto
-          if (parsed.isProdotto && parsed.prestazione) {
-            prestazionePadre = parsed.prestazione;
-          }
-        } else if (combinazione) {
-          if (combinazione.tipo === 'prestazione+prodotto') {
-            const prest = prestazioniMap[combinazione.prestazione];
-            const prod = prodottiMap[combinazione.accessorio!];
-            descrizione = `${prest?.descrizione || ''} - ${prod?.nome || ''}`;
-            tipo = 'prodotto';
-            prestazionePadre = combinazione.prestazione;
-          } else if (combinazione.tipo === 'prestazione+macchinario') {
-            const prest = prestazioniMap[combinazione.prestazione];
-            const macc = macchinari.find(m => m.codice === combinazione.accessorio);
-            descrizione = `${prest?.descrizione || ''} - ${macc?.nome || ''}`;
-            tipo = 'macchinario';
-            prestazionePadre = combinazione.prestazione;
-          } else if (combinazione.tipo === 'prestazione') {
-            // Combinazione di tipo prestazione
-            tipo = 'prestazione';
-            descrizione = prestazioniMap[combinazione.prestazione]?.descrizione || codice;
-          }
-        } else {
-          // Codice sconosciuto
-          descrizione = codice;
-          // Se parseCodiceFattura dice che è un prodotto, mantieni quel tipo
-          if (parsed.isProdotto) {
-            tipo = 'prodotto';
-            if (parsed.prestazione) {
-              prestazionePadre = parsed.prestazione;
-            }
-          }
-        }
-        
-        // Determina l'unità di misura
-        let unita = row[fieldMapping.unita] || '';
-        if (!unita && prodotto) {
-          unita = prodotto.unita; // Default dal prodotto se vuoto
-        } else if (!unita) {
-          unita = 'pz'; // Default generico
-        }
-        
-        voci.push({
-          id: Date.now() + index,
-          codice: codice,
-          descrizione: descrizione,
-          quantita: parseFloat(row[fieldMapping.quantita]) || 1,
-          unita: unita,
-          importoNetto: importoNetto,
-          importoLordo: importoNetto,
-          tipo: tipo,
-          prestazionePadre: prestazionePadre,
-          anomalie: [] // Verranno calcolate dopo
-        });
-      }
-      
+    // Raggruppa le righe per numero fattura e serie
+    const fattureRaggruppate: Map<string, any[]> = new Map();
+    
+    dataFiltered.forEach(row => {
       // Gestione serie: usa quella mappata o default 'P' (principale)
+      // IMPORTANTE: cella vuota = serie P
       let serie = row[fieldMapping.serie] || 'P';
+      if (!serie || serie.trim() === '') serie = 'P';
       if (serie === 'P') serie = 'principale';
       
-      // Calcola importo e IVA dal file
-      const imponibile = parseFloat(row[fieldMapping.importo]) || 0;
-      let iva = 0;
-      let totale = imponibile;
+      const numero = row[fieldMapping.numero];
+      const chiave = `${serie}_${numero}`;
       
-      // Se c'è il campo IVA mappato, lo usa per il calcolo
-      if (fieldMapping.iva && row[fieldMapping.iva]) {
-        iva = parseFloat(row[fieldMapping.iva]) || 0;
-        totale = imponibile + iva;
+      if (!fattureRaggruppate.has(chiave)) {
+        fattureRaggruppate.set(chiave, []);
       }
+      fattureRaggruppate.get(chiave)!.push(row);
+    });
+    
+    console.log('Fatture raggruppate:', fattureRaggruppate.size, 'fatture da', dataFiltered.length, 'righe');
+    
+    // Converti i dati raggruppati nel formato fatture
+    let fatturaIndex = 0;
+    const nuoveFatture = Array.from(fattureRaggruppate.entries()).map(([chiave, righe]) => {
+      const voci: VoceFatturaEstesa[] = [];
+      let imponibileTotale = 0;
+      let ivaTotale = 0;
       
-      // Gestisce le date in formato Excel (numero seriale)
+      // Prendi i dati comuni dalla prima riga
+      const primaRiga = righe[0];
+      
+      // Processa tutte le righe per creare le voci
+      righe.forEach((row, voceIndex) => {
+        // Se abbiamo mappato codice, crea una voce
+        if (fieldMapping.codice && row[fieldMapping.codice]) {
+          const codice = row[fieldMapping.codice];
+          const importoNetto = parseFloat(row[fieldMapping.importo]) || 0;
+          
+          // Determina la descrizione dal codice e il tipo
+          let descrizione = '';
+          let tipo: 'prestazione' | 'prodotto' | 'macchinario' = 'prestazione';
+          let prestazionePadre: string | undefined;
+          
+          const prestazione = prestazioniMap[codice];
+          const prodotto = prodottiMap[codice];
+          const combinazione = combinazioni.find(c => c.codice === codice);
+          
+          // Usa parseCodiceFattura per determinare se il codice è valido
+          const parsed = parseCodiceFattura(codice);
+          
+          if (prestazione) {
+            descrizione = prestazione.descrizione;
+            tipo = 'prestazione';
+          } else if (prodotto) {
+            descrizione = prodotto.nome;
+            tipo = 'prodotto';
+            // Estrai la prestazione padre dal codice prodotto
+            if (parsed.isProdotto && parsed.prestazione) {
+              prestazionePadre = parsed.prestazione;
+            }
+          } else if (combinazione) {
+            if (combinazione.tipo === 'prestazione+prodotto') {
+              const prest = prestazioniMap[combinazione.prestazione];
+              const prod = prodottiMap[combinazione.accessorio!];
+              descrizione = `${prest?.descrizione || ''} - ${prod?.nome || ''}`;
+              tipo = 'prodotto';
+              prestazionePadre = combinazione.prestazione;
+            } else if (combinazione.tipo === 'prestazione+macchinario') {
+              const prest = prestazioniMap[combinazione.prestazione];
+              const macc = macchinari.find(m => m.codice === combinazione.accessorio);
+              descrizione = `${prest?.descrizione || ''} - ${macc?.nome || ''}`;
+              tipo = 'macchinario';
+              prestazionePadre = combinazione.prestazione;
+            } else if (combinazione.tipo === 'prestazione') {
+              // Combinazione di tipo prestazione
+              tipo = 'prestazione';
+              descrizione = prestazioniMap[combinazione.prestazione]?.descrizione || codice;
+            }
+          } else {
+            // Codice sconosciuto
+            descrizione = codice;
+            // Se parseCodiceFattura dice che è un prodotto, mantieni quel tipo
+            if (parsed.isProdotto) {
+              tipo = 'prodotto';
+              if (parsed.prestazione) {
+                prestazionePadre = parsed.prestazione;
+              }
+            }
+          }
+          
+          // Determina l'unità di misura
+          let unita = row[fieldMapping.unita] || '';
+          if (!unita && prodotto) {
+            unita = prodotto.unita; // Default dal prodotto se vuoto
+          } else if (!unita) {
+            unita = 'pz'; // Default generico
+          }
+          
+          voci.push({
+            id: Date.now() + fatturaIndex * 1000 + voceIndex,
+            codice: codice,
+            descrizione: descrizione,
+            quantita: parseFloat(row[fieldMapping.quantita]) || 1,
+            unita: unita,
+            importoNetto: importoNetto,
+            importoLordo: importoNetto,
+            tipo: tipo,
+            prestazionePadre: prestazionePadre,
+            anomalie: [] // Verranno calcolate dopo
+          });
+          
+          // Accumula importi
+          imponibileTotale += importoNetto;
+          
+          // Se c'è il campo IVA mappato per questa riga
+          if (fieldMapping.iva && row[fieldMapping.iva]) {
+            ivaTotale += parseFloat(row[fieldMapping.iva]) || 0;
+          }
+        }
+      });
+      
+      // Gestione serie dalla chiave
+      let serie = chiave.split('_')[0];
+      
+      // Gestisce le date in formato Excel (numero seriale) dalla prima riga
       let dataFormatted;
       let dataEmissione;
-      const dataValue = row[fieldMapping.data];
+      const dataValue = primaRiga[fieldMapping.data];
       
       if (typeof dataValue === 'number') {
         // È un numero seriale di Excel
@@ -396,18 +422,18 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       }
       
       const fattura: FatturaConVoci = {
-        id: Date.now() + index,
-        numero: row[fieldMapping.numero],
+        id: Date.now() + fatturaIndex,
+        numero: primaRiga[fieldMapping.numero],
         data: dataFormatted,
         dataEmissione: dataEmissione,
-        paziente: row[fieldMapping.paziente] || '',
-        clienteNome: row[fieldMapping.paziente] || '',
+        paziente: primaRiga[fieldMapping.paziente] || '',
+        clienteNome: primaRiga[fieldMapping.paziente] || '',
         medicoId: null,
         medicoNome: null,
-        imponibile: imponibile,
-        iva: iva,
-        totale: totale,
-        conIva: iva > 0,
+        imponibile: imponibileTotale,
+        iva: ivaTotale,
+        totale: imponibileTotale + ivaTotale,
+        conIva: ivaTotale > 0,
         importata: false,
         stato: 'da_importare',
         serie: serie,
@@ -429,6 +455,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         fattura.stato = 'anomalia';
       }
       
+      fatturaIndex++;
       return fattura;
     });
     
