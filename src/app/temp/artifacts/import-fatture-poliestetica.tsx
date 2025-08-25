@@ -215,7 +215,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       { key: 'codice', patterns: ['codice', 'articolo', 'cod.', 'servizio', 'cod', 'codice articolo'] },
       { key: 'serie', patterns: ['serie', 'serie fattura', 'serie documento'] },
       { key: 'quantita', patterns: ['quantità', 'quantita', 'qta', 'q.tà', 'qt', 'qty'] },
-      { key: 'unita', patterns: ['u.m.', 'um', 'unità', 'unita', 'unità misura', 'unita misura'] },
+      { key: 'unita', patterns: ['u.m.', 'U.M.', 'um', 'UM', 'unità', 'unita', 'unità misura', 'unita misura', 'unità di misura', 'unita di misura'] },
       { key: 'importo', patterns: ['prezzo totale', 'importo', 'prezzo', 'totale', 'imponibile', 'netto'] },
       { key: 'iva', patterns: ['iva', 'imposta', 'aliquota', 'tax', '% iva'] }
     ];
@@ -3003,19 +3003,72 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                     >
                       <ChevronLeft className="h-5 w-5" />
                     </button>
-                    {[...Array(totalPages)].map((_, i) => (
-                      <button
-                        key={i + 1}
-                        onClick={() => setCurrentPage(i + 1)}
-                        className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
-                          currentPage === i + 1
-                            ? 'z-10 bg-[#03A6A6] border-[#03A6A6] text-white'
-                            : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        {i + 1}
-                      </button>
-                    ))}
+                    {(() => {
+                      const pageNumbers = [];
+                      const maxVisible = 7; // Numero massimo di pulsanti visibili
+                      const ellipsis = '...';
+                      
+                      if (totalPages <= maxVisible) {
+                        // Se le pagine totali sono poche, mostra tutto
+                        for (let i = 1; i <= totalPages; i++) {
+                          pageNumbers.push(i);
+                        }
+                      } else {
+                        // Sempre mostra la prima pagina
+                        pageNumbers.push(1);
+                        
+                        if (currentPage <= 4) {
+                          // Se siamo nelle prime pagine
+                          for (let i = 2; i <= 5; i++) {
+                            pageNumbers.push(i);
+                          }
+                          pageNumbers.push(ellipsis);
+                          pageNumbers.push(totalPages);
+                        } else if (currentPage >= totalPages - 3) {
+                          // Se siamo nelle ultime pagine
+                          pageNumbers.push(ellipsis);
+                          for (let i = totalPages - 4; i < totalPages; i++) {
+                            pageNumbers.push(i);
+                          }
+                          pageNumbers.push(totalPages);
+                        } else {
+                          // Se siamo nel mezzo
+                          pageNumbers.push(ellipsis);
+                          for (let i = currentPage - 1; i <= currentPage + 1; i++) {
+                            pageNumbers.push(i);
+                          }
+                          pageNumbers.push(ellipsis);
+                          pageNumbers.push(totalPages);
+                        }
+                      }
+                      
+                      return pageNumbers.map((number, index) => {
+                        if (number === ellipsis) {
+                          return (
+                            <span
+                              key={`ellipsis-${index}`}
+                              className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700"
+                            >
+                              {ellipsis}
+                            </span>
+                          );
+                        }
+                        
+                        return (
+                          <button
+                            key={number}
+                            onClick={() => setCurrentPage(number as number)}
+                            className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
+                              currentPage === number
+                                ? 'z-10 bg-[#03A6A6] border-[#03A6A6] text-white'
+                                : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            {number}
+                          </button>
+                        );
+                      });
+                    })()}
                     <button
                       onClick={() => setCurrentPage(currentPage + 1)}
                       disabled={currentPage === totalPages}
