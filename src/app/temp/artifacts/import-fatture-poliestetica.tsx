@@ -150,27 +150,78 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         const sheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
         
-        if (jsonData.length > 4) {
-          // I nomi dei campi sono alla riga 4 (indice 3 nell'array)
-          const headerRow = 3; // Riga 4 in Excel = indice 3 nell'array (0-based)
-          const headers = (jsonData[headerRow] as any[]).filter(h => h !== undefined && h !== null);
+        if (jsonData.length > 0) {
+          // Cerca dinamicamente la riga che contiene "data" o "Data" nella prima colonna
+          let headerRowIndex = -1;
           
-          // Verifica che ci siano headers validi
-          if (headers.length === 0) {
-            alert('Il file Excel non contiene intestazioni valide alla riga 4');
+          for (let i = 0; i < Math.min(jsonData.length, 20); i++) { // Cerca nelle prime 20 righe
+            const row = jsonData[i] as any[];
+            if (row && row.length > 0) {
+              // Controlla ogni cella della riga per trovare "data" o "Data"
+              for (let j = 0; j < row.length; j++) {
+                const cellValue = row[j];
+                if (cellValue && typeof cellValue === 'string') {
+                  const cellLower = cellValue.toLowerCase().trim();
+                  if (cellLower === 'data' || cellLower.includes('data')) {
+                    headerRowIndex = i;
+                    console.log(`Trovata riga headers alla posizione ${i + 1} (riga Excel ${i + 1})`);
+                    break;
+                  }
+                }
+              }
+              if (headerRowIndex !== -1) break;
+            }
+          }
+          
+          if (headerRowIndex === -1) {
+            alert('Non riesco a trovare la riga degli headers. Cerco una riga che contenga "Data" nelle prime 20 righe del file.');
             if (event.target) event.target.value = '';
             return;
           }
           
-          console.log('Headers trovati alla riga 4:', headers);
-          setFileColumns(headers.map(h => String(h).trim()));
+          // Prendi tutti i valori della riga headers trovata
+          const rawHeaders = jsonData[headerRowIndex] as any[];
           
-          // Converti in array di oggetti partendo dalla riga 5 (indice 4)
-          const dataRows = jsonData.slice(headerRow + 1).map((row: any) => {
+          // Trova l'ultimo indice con un valore valido per determinare la lunghezza effettiva
+          let lastValidIndex = -1;
+          for (let i = rawHeaders.length - 1; i >= 0; i--) {
+            if (rawHeaders[i] !== undefined && rawHeaders[i] !== null && String(rawHeaders[i]).trim() !== '') {
+              lastValidIndex = i;
+              break;
+            }
+          }
+          
+          // Se non ci sono headers validi
+          if (lastValidIndex === -1) {
+            alert(`Il file Excel non contiene intestazioni valide alla riga ${headerRowIndex + 1}`);
+            if (event.target) event.target.value = '';
+            return;
+          }
+          
+          // Prendi tutti gli headers fino all'ultimo valido (preservando le posizioni vuote)
+          const headers = rawHeaders.slice(0, lastValidIndex + 1).map(h => 
+            (h === undefined || h === null || String(h).trim() === '') ? '' : String(h).trim()
+          );
+          
+          // Filtra solo per il controllo, ma usa l'array completo per il mapping
+          const validHeaders = headers.filter(h => h !== '');
+          if (validHeaders.length === 0) {
+            alert(`Il file Excel non contiene intestazioni valide alla riga ${headerRowIndex + 1}`);
+            if (event.target) event.target.value = '';
+            return;
+          }
+          
+          console.log(`Headers trovati alla riga ${headerRowIndex + 1}:`, headers);
+          console.log('Headers validi:', validHeaders);
+          setFileColumns(validHeaders); // Usa solo gli headers validi per le colonne
+          
+          // Converti in array di oggetti partendo dalla riga successiva agli headers
+          const dataRows = jsonData.slice(headerRowIndex + 1).map((row: any) => {
             const obj: any = {};
             headers.forEach((header, index) => {
-              if (row[index] !== undefined && row[index] !== null) {
-                obj[String(header).trim()] = row[index];
+              // Solo se l'header non è vuoto e il valore esiste
+              if (header !== '' && row[index] !== undefined && row[index] !== null) {
+                obj[header] = row[index];
               }
             });
             return obj;
@@ -189,10 +240,10 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           setShowImportDialog(false);
           setShowMappingModal(true);
           
-          // Inizializza mapping automatico basato su nomi simili
-          initializeAutoMapping(headers.map(h => String(h).trim()));
+          // Inizializza mapping automatico basato su nomi simili (usa solo headers validi)
+          initializeAutoMapping(validHeaders);
         } else {
-          alert('Il file Excel deve contenere almeno 5 righe (headers alla riga 4 + dati)');
+          alert('Il file Excel è vuoto');
           if (event.target) event.target.value = '';
         }
       } catch (error) {
