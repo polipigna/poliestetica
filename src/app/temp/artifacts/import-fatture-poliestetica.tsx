@@ -6,7 +6,6 @@ import {
   ChevronRight,
   ChevronLeft,
   AlertCircle,
-  Download,
   Upload,
   Plus,
   ChevronDown,
@@ -21,25 +20,41 @@ import {
   Calendar
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import type { Fattura, Medico, Prestazione, Prodotto, VoceFattura, Macchinario } from '@/data/mock';
+import type { Medico, Prestazione, Prodotto, VoceFattura, Macchinario } from '@/data/mock';
 import { 
   parseCodiceFattura, 
-  prestazioneRichiedeProdotti,
   getProdottiValidiPerPrestazione,
   combinazioni,
   macchinari
 } from '@/data/mock';
 import { calculateAnomalie } from '@/utils/fattureHelpers';
 
-// Interfacce per gestione voci estesa
-interface VoceFatturaEstesa extends VoceFattura {
-  // VoceFattura già include tutti i campi necessari
-}
+// Import delle utility functions
+import {
+  // Formatters
+  formatDate,
+  formatCurrency,
+  toSlug,
+  excelToNumber,
+  
+  // Calculators
+  calculateTotaleImponibile,
+  calculateTotaleFattura,
+  calculateIva,
+  countAnomalieByType
+} from './import-fatture/utils';
 
-interface FatturaConVoci extends Fattura {
-  dataEmissione?: string;
-  clienteNome?: string;
-}
+// Import dei services
+import {
+  ExcelParser,
+  AnomalieCalculator,
+  FattureProcessor,
+  type VoceFatturaEstesa,
+  type FatturaConVoci,
+  type FieldMapping
+} from './import-fatture/services';
+
+// Le interfacce sono ora importate dai services
 
 // Props interface
 interface ImportFattureProps {
@@ -108,7 +123,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [fileData, setFileData] = useState<any[]>([]);
   const [fileColumns, setFileColumns] = useState<string[]>([]);
-  const [fieldMapping, setFieldMapping] = useState<Record<string, string>>({});
+  const [fieldMapping, setFieldMapping] = useState<FieldMapping>({});
   const [dataFiltro, setDataFiltro] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showImportSummary, setShowImportSummary] = useState(false);
@@ -127,13 +142,12 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   const lastSync = '15 minuti fa';
 
   // Funzione per processare il file Excel
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     
     // Verifica estensione file
-    const fileExtension = file.name.split('.').pop()?.toLowerCase();
-    if (!['xls', 'xlsx'].includes(fileExtension || '')) {
+    if (!ExcelParser.validateFileExtension(file.name)) {
       alert('Per favore seleziona un file Excel (.xls o .xlsx)');
       if (event.target) event.target.value = '';
       return;
@@ -141,390 +155,62 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     
     setUploadedFile(file);
     
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = e.target?.result;
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-        
-        if (jsonData.length > 0) {
-          // Cerca dinamicamente la riga che contiene "data" o "Data" nella prima colonna
-          let headerRowIndex = -1;
-          
-          for (let i = 0; i < Math.min(jsonData.length, 20); i++) { // Cerca nelle prime 20 righe
-            const row = jsonData[i] as any[];
-            if (row && row.length > 0) {
-              // Controlla ogni cella della riga per trovare "data" o "Data"
-              for (let j = 0; j < row.length; j++) {
-                const cellValue = row[j];
-                if (cellValue && typeof cellValue === 'string') {
-                  const cellLower = cellValue.toLowerCase().trim();
-                  if (cellLower === 'data' || cellLower.includes('data')) {
-                    headerRowIndex = i;
-                    console.log(`Trovata riga headers alla posizione ${i + 1} (riga Excel ${i + 1})`);
-                    break;
-                  }
-                }
-              }
-              if (headerRowIndex !== -1) break;
-            }
-          }
-          
-          if (headerRowIndex === -1) {
-            alert('Non riesco a trovare la riga degli headers. Cerco una riga che contenga "Data" nelle prime 20 righe del file.');
-            if (event.target) event.target.value = '';
-            return;
-          }
-          
-          // Prendi tutti i valori della riga headers trovata
-          const rawHeaders = jsonData[headerRowIndex] as any[];
-          
-          // Trova l'ultimo indice con un valore valido per determinare la lunghezza effettiva
-          let lastValidIndex = -1;
-          for (let i = rawHeaders.length - 1; i >= 0; i--) {
-            if (rawHeaders[i] !== undefined && rawHeaders[i] !== null && String(rawHeaders[i]).trim() !== '') {
-              lastValidIndex = i;
-              break;
-            }
-          }
-          
-          // Se non ci sono headers validi
-          if (lastValidIndex === -1) {
-            alert(`Il file Excel non contiene intestazioni valide alla riga ${headerRowIndex + 1}`);
-            if (event.target) event.target.value = '';
-            return;
-          }
-          
-          // Prendi tutti gli headers fino all'ultimo valido (preservando le posizioni vuote)
-          const headers = rawHeaders.slice(0, lastValidIndex + 1).map(h => 
-            (h === undefined || h === null || String(h).trim() === '') ? '' : String(h).trim()
-          );
-          
-          // Filtra solo per il controllo, ma usa l'array completo per il mapping
-          const validHeaders = headers.filter(h => h !== '');
-          if (validHeaders.length === 0) {
-            alert(`Il file Excel non contiene intestazioni valide alla riga ${headerRowIndex + 1}`);
-            if (event.target) event.target.value = '';
-            return;
-          }
-          
-          console.log(`Headers trovati alla riga ${headerRowIndex + 1}:`, headers);
-          console.log('Headers validi:', validHeaders);
-          setFileColumns(validHeaders); // Usa solo gli headers validi per le colonne
-          
-          // Converti in array di oggetti partendo dalla riga successiva agli headers
-          const dataRows = jsonData.slice(headerRowIndex + 1).map((row: any) => {
-            const obj: any = {};
-            headers.forEach((header, index) => {
-              // Solo se l'header non è vuoto e il valore esiste
-              if (header !== '' && row[index] !== undefined && row[index] !== null) {
-                obj[header] = row[index];
-              }
-            });
-            return obj;
-          }).filter(row => Object.keys(row).length > 0); // Filtra righe vuote
-          
-          if (dataRows.length === 0) {
-            alert('Il file Excel non contiene dati validi dopo la riga 5');
-            if (event.target) event.target.value = '';
-            return;
-          }
-          
-          console.log('Numero righe dati trovate:', dataRows.length);
-          console.log('Prima riga dati:', dataRows[0]);
-          
-          setFileData(dataRows);
-          setShowImportDialog(false);
-          setShowMappingModal(true);
-          
-          // Inizializza mapping automatico basato su nomi simili (usa solo headers validi)
-          initializeAutoMapping(validHeaders);
-        } else {
-          alert('Il file Excel è vuoto');
-          if (event.target) event.target.value = '';
-        }
-      } catch (error) {
-        console.error('Errore nella lettura del file:', error);
-        alert('Errore nella lettura del file. Assicurati che sia un file Excel valido.');
-        if (event.target) event.target.value = '';
-      }
-    };
-    
-    reader.readAsArrayBuffer(file);
+    try {
+      // Usa il servizio ExcelParser per leggere il file
+      const parsedData = await ExcelParser.parseFile(file);
+      
+      console.log(`Headers trovati alla riga ${parsedData.headerRowIndex + 1}:`, parsedData.headers);
+      console.log('Headers validi:', parsedData.validHeaders);
+      console.log('Numero righe dati trovate:', parsedData.dataRows.length);
+      console.log('Prima riga dati:', parsedData.dataRows[0]);
+      
+      setFileColumns(parsedData.validHeaders);
+      setFileData(parsedData.dataRows);
+      setShowImportDialog(false);
+      setShowMappingModal(true);
+      
+      // Inizializza mapping automatico
+      const autoMapping = ExcelParser.createAutoMapping(parsedData.validHeaders);
+      setFieldMapping(autoMapping);
+      
+    } catch (error: any) {
+      console.error('Errore nella lettura del file:', error);
+      alert(error.message || 'Errore nella lettura del file. Assicurati che sia un file Excel valido.');
+      if (event.target) event.target.value = '';
+    }
   };
-  
-  // Inizializza mapping automatico
-  const initializeAutoMapping = (headers: string[]) => {
-    const mapping: Record<string, string> = {};
-    const campiSistema = [
-      { key: 'numero', patterns: ['numero', 'n.', 'n°', 'numero fattura', 'n fattura'] },
-      { key: 'data', patterns: ['data', 'emissione', 'data documento', 'data fattura'] },
-      { key: 'paziente', patterns: ['cliente', 'paziente', 'nominativo', 'intestatario', 'ragione sociale', 'denominazione'] },
-      { key: 'codice', patterns: ['codice', 'articolo', 'cod.', 'servizio', 'cod', 'codice articolo'] },
-      { key: 'serie', patterns: ['serie', 'serie fattura', 'serie documento'] },
-      { key: 'quantita', patterns: ['quantità', 'quantita', 'qta', 'q.tà', 'qt', 'qty'] },
-      { key: 'unita', patterns: ['u.m.', 'U.M.', 'um', 'UM', 'unità', 'unita', 'unità misura', 'unita misura', 'unità di misura', 'unita di misura'] },
-      { key: 'importo', patterns: ['prezzo totale', 'importo', 'prezzo', 'totale', 'imponibile', 'netto'] },
-      { key: 'iva', patterns: ['iva', 'imposta', 'aliquota', 'tax', '% iva'] }
-    ];
-    
-    console.log('Headers disponibili per mapping:', headers);
-    
-    campiSistema.forEach(campo => {
-      const matchedHeader = headers.find(h => {
-        // Controlla che h sia definito e sia una stringa
-        if (!h || typeof h !== 'string') return false;
-        const headerLower = h.toLowerCase().trim();
-        return campo.patterns.some(p => {
-          const patternLower = p.toLowerCase();
-          // Controlla corrispondenza esatta o parziale
-          return headerLower === patternLower || headerLower.includes(patternLower);
-        });
-      });
-      if (matchedHeader) {
-        console.log(`Mappato campo ${campo.key} -> ${matchedHeader}`);
-        mapping[campo.key] = matchedHeader;
-      }
-    });
-    
-    setFieldMapping(mapping);
-  };
+  // Rimossa: ora usa ExcelParser.createAutoMapping
   
   // Processa i dati importati
   const processImportedData = () => {
-    if (!fieldMapping.numero || !fieldMapping.data) {
-      alert('Per favore mappa almeno i campi Numero Fattura e Data');
-      return;
-    }
-    
-    console.log('Dati da processare:', fileData.length, 'righe');
-    console.log('Field mapping:', fieldMapping);
-    console.log('Esempio prima riga:', fileData[0]);
-    
-    // Filtra per data se specificato
-    let dataFiltered = [...fileData];
-    if (dataFiltro) {
-      const filterDate = new Date(dataFiltro);
-      console.log('Filtro data attivo:', dataFiltro, 'filterDate:', filterDate);
-      dataFiltered = fileData.filter(row => {
-        // Gestisce le date in formato Excel (numero seriale)
-        let dataFattura;
-        const dataValue = row[fieldMapping.data];
-        
-        if (typeof dataValue === 'number') {
-          // È un numero seriale di Excel (giorni dal 1/1/1900)
-          // Excel usa 1/1/1900 come giorno 1, ma c'è un bug storico per cui conta anche il 29/2/1900
-          // Quindi sottraiamo 25569 giorni per convertire al timestamp Unix
-          const excelEpoch = new Date(1899, 11, 30); // 30/12/1899
-          dataFattura = new Date(excelEpoch.getTime() + dataValue * 24 * 60 * 60 * 1000);
-        } else {
-          // Prova a parsare come stringa normale
-          dataFattura = new Date(dataValue);
+    try {
+      // Usa il servizio FattureProcessor
+      const nuoveFatture = FattureProcessor.processImportedData(
+        fileData,
+        fieldMapping,
+        {
+          dataFiltro,
+          prestazioniMap,
+          prodottiMap
         }
-        
-        console.log('Confronto date:', dataValue, '->', dataFattura, '>', filterDate, dataFattura > filterDate);
-        return dataFattura > filterDate;
-      });
-      console.log('Dopo filtro data:', dataFiltered.length, 'righe');
+      );
+      
+      // Aggiungi le nuove fatture
+      setFatture([...fatture, ...nuoveFatture]);
+      
+      // Chiudi modal e resetta
+      setShowMappingModal(false);
+      setUploadedFile(null);
+      setFileData([]);
+      setFileColumns([]);
+      setFieldMapping({});
+      setDataFiltro('');
+      
+      alert(`Importate ${nuoveFatture.length} fatture. Eventuali anomalie sono state rilevate.`);
+      
+    } catch (error: any) {
+      alert(error.message || 'Errore nel processamento dei dati');
     }
-    
-    // Raggruppa le righe per numero fattura e serie
-    const fattureRaggruppate: Map<string, any[]> = new Map();
-    
-    dataFiltered.forEach(row => {
-      // Gestione serie: usa quella mappata o default 'P' (principale)
-      // IMPORTANTE: cella vuota = serie P
-      let serie = row[fieldMapping.serie] || 'P';
-      if (!serie || serie.trim() === '') serie = 'P';
-      if (serie === 'P') serie = 'principale';
-      
-      const numero = row[fieldMapping.numero];
-      const chiave = `${serie}_${numero}`;
-      
-      if (!fattureRaggruppate.has(chiave)) {
-        fattureRaggruppate.set(chiave, []);
-      }
-      fattureRaggruppate.get(chiave)!.push(row);
-    });
-    
-    console.log('Fatture raggruppate:', fattureRaggruppate.size, 'fatture da', dataFiltered.length, 'righe');
-    
-    // Converti i dati raggruppati nel formato fatture
-    let fatturaIndex = 0;
-    const nuoveFatture = Array.from(fattureRaggruppate.entries()).map(([chiave, righe]) => {
-      const voci: VoceFatturaEstesa[] = [];
-      let imponibileTotale = 0;
-      let ivaTotale = 0;
-      
-      // Prendi i dati comuni dalla prima riga
-      const primaRiga = righe[0];
-      
-      // Processa tutte le righe per creare le voci
-      righe.forEach((row, voceIndex) => {
-        // Se abbiamo mappato codice, crea una voce
-        if (fieldMapping.codice && row[fieldMapping.codice]) {
-          const codice = row[fieldMapping.codice];
-          const importoNetto = parseFloat(row[fieldMapping.importo]) || 0;
-          
-          // Determina la descrizione dal codice e il tipo
-          let descrizione = '';
-          let tipo: 'prestazione' | 'prodotto' | 'macchinario' = 'prestazione';
-          let prestazionePadre: string | undefined;
-          
-          const prestazione = prestazioniMap[codice];
-          const prodotto = prodottiMap[codice];
-          const combinazione = combinazioni.find(c => c.codice === codice);
-          
-          // Usa parseCodiceFattura per determinare se il codice è valido
-          const parsed = parseCodiceFattura(codice);
-          
-          if (prestazione) {
-            descrizione = prestazione.descrizione;
-            tipo = 'prestazione';
-          } else if (prodotto) {
-            descrizione = prodotto.nome;
-            tipo = 'prodotto';
-            // Estrai la prestazione padre dal codice prodotto
-            if (parsed.isProdotto && parsed.prestazione) {
-              prestazionePadre = parsed.prestazione;
-            }
-          } else if (combinazione) {
-            if (combinazione.tipo === 'prestazione+prodotto') {
-              const prest = prestazioniMap[combinazione.prestazione];
-              const prod = prodottiMap[combinazione.accessorio!];
-              descrizione = `${prest?.descrizione || ''} - ${prod?.nome || ''}`;
-              tipo = 'prodotto';
-              prestazionePadre = combinazione.prestazione;
-            } else if (combinazione.tipo === 'prestazione+macchinario') {
-              const prest = prestazioniMap[combinazione.prestazione];
-              const macc = macchinari.find(m => m.codice === combinazione.accessorio);
-              descrizione = `${prest?.descrizione || ''} - ${macc?.nome || ''}`;
-              tipo = 'macchinario';
-              prestazionePadre = combinazione.prestazione;
-            } else if (combinazione.tipo === 'prestazione') {
-              // Combinazione di tipo prestazione
-              tipo = 'prestazione';
-              descrizione = prestazioniMap[combinazione.prestazione]?.descrizione || codice;
-            }
-          } else {
-            // Codice sconosciuto
-            descrizione = codice;
-            // Se parseCodiceFattura dice che è un prodotto, mantieni quel tipo
-            if (parsed.isProdotto) {
-              tipo = 'prodotto';
-              if (parsed.prestazione) {
-                prestazionePadre = parsed.prestazione;
-              }
-            }
-          }
-          
-          // Determina l'unità di misura
-          let unita = row[fieldMapping.unita] || '';
-          if (!unita && prodotto) {
-            unita = prodotto.unita; // Default dal prodotto se vuoto
-          } else if (!unita) {
-            unita = 'pz'; // Default generico
-          }
-          
-          voci.push({
-            id: Date.now() + fatturaIndex * 1000 + voceIndex,
-            codice: codice,
-            descrizione: descrizione,
-            quantita: parseFloat(row[fieldMapping.quantita]) || 1,
-            unita: unita,
-            importoNetto: importoNetto,
-            importoLordo: importoNetto,
-            tipo: tipo,
-            prestazionePadre: prestazionePadre,
-            anomalie: [] // Verranno calcolate dopo
-          });
-          
-          // Accumula importi
-          imponibileTotale += importoNetto;
-          
-          // Se c'è il campo IVA mappato per questa riga
-          if (fieldMapping.iva && row[fieldMapping.iva]) {
-            ivaTotale += parseFloat(row[fieldMapping.iva]) || 0;
-          }
-        }
-      });
-      
-      // Gestione serie dalla chiave
-      let serie = chiave.split('_')[0];
-      
-      // Gestisce le date in formato Excel (numero seriale) dalla prima riga
-      let dataFormatted;
-      let dataEmissione;
-      const dataValue = primaRiga[fieldMapping.data];
-      
-      if (typeof dataValue === 'number') {
-        // È un numero seriale di Excel
-        const excelEpoch = new Date(1899, 11, 30);
-        const dataDate = new Date(excelEpoch.getTime() + dataValue * 24 * 60 * 60 * 1000);
-        dataFormatted = dataDate.toLocaleDateString('it-IT');
-        dataEmissione = dataDate.toISOString().split('T')[0];
-      } else {
-        const dataDate = new Date(dataValue);
-        dataFormatted = dataDate.toLocaleDateString('it-IT');
-        dataEmissione = dataValue;
-      }
-      
-      const fattura: FatturaConVoci = {
-        id: Date.now() + fatturaIndex,
-        numero: primaRiga[fieldMapping.numero],
-        data: dataFormatted,
-        dataEmissione: dataEmissione,
-        paziente: primaRiga[fieldMapping.paziente] || '',
-        clienteNome: primaRiga[fieldMapping.paziente] || '',
-        medicoId: null,
-        medicoNome: null,
-        imponibile: imponibileTotale,
-        iva: ivaTotale,
-        totale: imponibileTotale + ivaTotale,
-        conIva: ivaTotale > 0,
-        importata: false,
-        stato: 'da_importare',
-        serie: serie,
-        voci,
-        anomalie: []
-      };
-      
-      // Calcola anomalie delle voci
-      const vociConAnomalie = voci.map(voce => {
-        const anomalieVoce = verificaAnomalieVoce(voce, voci);
-        return { ...voce, anomalie: anomalieVoce };
-      });
-      fattura.voci = vociConAnomalie;
-      
-      // Calcola anomalie della fattura
-      const anomalieFattura = getAnomalieFattura(fattura);
-      fattura.anomalie = anomalieFattura;
-      if (anomalieFattura.length > 0) {
-        fattura.stato = 'anomalia';
-      }
-      
-      fatturaIndex++;
-      return fattura;
-    });
-    
-    console.log('Fatture create:', nuoveFatture.length);
-    console.log('Esempio prima fattura:', nuoveFatture[0]);
-    
-    // Aggiungi le nuove fatture
-    setFatture([...fatture, ...nuoveFatture]);
-    
-    // Chiudi modal e resetta
-    setShowMappingModal(false);
-    setUploadedFile(null);
-    setFileData([]);
-    setFileColumns([]);
-    setFieldMapping({});
-    setDataFiltro('');
-    
-    alert(`Importate ${nuoveFatture.length} fatture. Eventuali anomalie sono state rilevate.`);
   };
   
   // Reset della pagina corrente quando cambiano i filtri o la vista
@@ -532,141 +218,17 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     setCurrentPage(1);
   }, [filtroStato, filtroAnomalia, filtroMedico, filtroSerie, filtroDataDa, filtroDataA, vistaRaggruppata]);
 
-  // Funzione per verificare anomalie voci - Mossa prima di useMemo per evitare hoisting issues
+  // Funzione per verificare anomalie voci
   const verificaAnomalieVoce = useMemo(() => {
     return (voce: VoceFatturaEstesa, voci: VoceFatturaEstesa[]): string[] => {
-    const anomalie: string[] = [];
-    
-    // Prima controlla se è una prestazione valida nel sistema
-    const prestazione = prestazioniMap[voce.codice];
-    if (prestazione) {
-      // È una prestazione valida, verifica se richiede prodotti o macchinari
-      if (prestazione.richiedeProdotti) {
-        const prodottiTrovati = voci.filter(v => {
-          const p = parseCodiceFattura(v.codice);
-          return p.isProdotto && p.prestazione === voce.codice;
-        });
-        
-        if (prodottiTrovati.length === 0) {
-          anomalie.push('prestazione_incompleta');
-        }
-      }
-      
-      if (prestazione.richiedeMacchinario) {
-        const macchinariTrovati = voci.filter(v => {
-          return v.codice.startsWith(voce.codice) && v.codice !== voce.codice;
-        });
-        
-        if (macchinariTrovati.length === 0) {
-          anomalie.push('prestazione_senza_macchinario');
-        }
-      }
-      
-      // Controllo prestazione duplicata
-      const duplicati = voci.filter(v => v.codice === voce.codice && v.id !== voce.id);
-      if (duplicati.length > 0) {
-        anomalie.push('prestazione_duplicata');
-      }
-      
-      return anomalie;
-    }
-    
-    // Se non è una prestazione valida, controlla se è un prodotto/macchinario valido
-    const parsed = parseCodiceFattura(voce.codice);
-    if (!parsed.valido) {
-      return ['codice_sconosciuto'];
-    }
-    
-    // Controlla se è una combinazione di tipo prestazione o prestazione+macchinario
-    const combinazione = combinazioni.find(c => c.codice === voce.codice);
-    if (combinazione && (combinazione.tipo === 'prestazione' || combinazione.tipo === 'prestazione+macchinario')) {
-      // Controllo prestazione duplicata anche per combinazioni prestazione/macchinario
-      const duplicati = voci.filter(v => v.codice === voce.codice && v.id !== voce.id);
-      if (duplicati.length > 0) {
-        anomalie.push('prestazione_duplicata');
-      }
-    }
-    
-    if (parsed.isProdotto) {
-      // Controllo prodotto con prezzo (escludi macchinari che devono avere prezzo)
-      if (voce.tipo === 'prodotto' && voce.importoNetto > 0) {
-        anomalie.push('prodotto_con_prezzo');
-      }
-      
-      // Controllo prodotto orfano
-      // Verifica prima se ha una prestazionePadre associata manualmente
-      if (!voce.prestazionePadre) {
-        // Poi cerca la prestazione nel codice
-        const prestazionePadre = voci.find(v => 
-          v.codice === parsed.prestazione && parseCodiceFattura(v.codice).isPrestazione
-        );
-        if (!prestazionePadre) {
-          anomalie.push('prodotto_orfano');
-        }
-      } else {
-        // Se ha una prestazionePadre, verifica che esista tra le voci
-        const prestazioneTrovata = voci.find(v => 
-          v.codice === voce.prestazionePadre && v.tipo === 'prestazione'
-        );
-        if (!prestazioneTrovata) {
-          anomalie.push('prodotto_orfano');
-        }
-      }
-      
-      // Controllo unità di misura
-      if (parsed.accessorio) {
-        const prodotto = prodottiMap[parsed.accessorio];
-        if (prodotto && voce.unita !== prodotto.unita) {
-          anomalie.push('unita_incompatibile');
-        }
-        
-        // Controllo quantità anomala
-        // Usa sogliaAnomalia dal prodotto se disponibile
-        if (prodotto && prodotto.sogliaAnomalia && voce.quantita > prodotto.sogliaAnomalia) {
-          anomalie.push('quantita_anomala');
-        }
-      }
-    }
-
-    return anomalie;
+      return AnomalieCalculator.verificaAnomalieVoce(voce, voci, prestazioniMap, prodottiMap);
     };
   }, [prodottiMap, prestazioniMap]);
 
-  // Calcola anomalie per fattura - Mossa prima di useMemo per evitare hoisting issues
+  // Calcola anomalie per fattura
   const getAnomalieFattura = useMemo(() => {
     return (fattura: FatturaConVoci) => {
-    const anomalie: string[] = [];
-    
-    // NON includere le vecchie anomalie della fattura quando ricalcoliamo
-    // Ricalcoliamo tutto basandoci solo sulle voci attuali
-    
-    if (!fattura.medicoId) {
-      anomalie.push('medico_mancante');
-    }
-    
-    // Analizza voci se esistono
-    if (fattura.voci && Array.isArray(fattura.voci)) {
-      // Verifica prestazioni duplicate
-      const codiciPrestazioni = fattura.voci
-        .filter(v => v.tipo === 'prestazione')
-        .map(v => v.codice);
-      
-      const hasDuplicati = codiciPrestazioni.some((codice, index) => 
-        codiciPrestazioni.indexOf(codice) !== index
-      );
-      
-      if (hasDuplicati) {
-        anomalie.push('prestazione_duplicata');
-      }
-      
-      // Raccogli le anomalie dalle voci
-      fattura.voci.forEach((voce) => {
-        const anomalieVoce = voce.anomalie || [];
-        anomalie.push(...anomalieVoce);
-      });
-    }
-    
-    return [...new Set(anomalie)]; // Rimuovi duplicati
+      return AnomalieCalculator.getAnomalieFattura(fattura);
     };
   }, []);
   
@@ -781,7 +343,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       // Filtro medico
       if (filtroMedico !== 'tutti') {
         if (filtroMedico === 'non_assegnato' && f.medicoId) return false;
-        if (filtroMedico !== 'non_assegnato' && f.medicoId?.toString() !== filtroMedico) return false;
+        if (filtroMedico !== 'non_assegnato' && String(f.medicoId) !== filtroMedico) return false;
       }
       
       // Filtro serie
@@ -829,11 +391,8 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   // Calcola stati count sempre dalle fatture locali per avere i numeri aggiornati
   const statiCount = useMemo(() => {
-    return fatture.reduce((acc, f) => {
-      const stato = f.stato || 'da_importare';
-      acc[stato] = (acc[stato] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const anomalieByStato = fatture.map(f => ({ tipo: f.stato || 'da_importare' }));
+    return countAnomalieByType(anomalieByStato);
   }, [fatture]);
 
 
@@ -888,7 +447,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     setFatture(fatture.map(f => {
       if (f.id === fatturaId) {
         // Ricalcola anomalie con il nuovo medico
-        const nuoveAnomalie = calculateAnomalie(f.voci || [], medicoId);
+        const nuoveAnomalie = calculateAnomalie((f.voci || []).map(v => ({ ...v, anomalie: v.anomalie || [] })), medicoId);
         const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
         
         const updatedFattura = { 
@@ -923,11 +482,11 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         });
         
         // Ricalcola anomalie
-        const nuoveAnomalie = calculateAnomalie(voci, f.medicoId);
+        const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), f.medicoId);
         const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
         
         // Ricalcola totali
-        const totaleNetto = voci.reduce((sum, v) => sum + (v.importoNetto || 0), 0);
+        const totaleNetto = calculateTotaleImponibile(voci.map(v => ({ imponibile: v.importoNetto })));
         
         return { ...f, voci, imponibile: totaleNetto, totale: totaleNetto * 1.22, anomalie: nuoveAnomalie, stato: stato as any };
       }
@@ -948,7 +507,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         });
         
         // Calcola totali
-        const totaleNetto = vociConAnomalieAggiornate.reduce((sum, v) => sum + (v.importoNetto || 0), 0);
+        const totaleNetto = calculateTotaleImponibile(vociConAnomalieAggiornate.map(v => ({ imponibile: v.importoNetto })));
         
         // Calcola anomalie a livello fattura
         const anomalie = getAnomalieFattura({ ...f, voci: vociConAnomalieAggiornate });
@@ -967,6 +526,8 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     }));
   };
 
+  // Funzione non utilizzata ma potrebbe essere utile in futuro
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleAggiungiPrestazioneMancante = (fatturaId: number, codicePrestazione: string) => {
     const prestazione = prestazioniMap[codicePrestazione];
     if (!prestazione) {
@@ -991,11 +552,11 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         const voci = [...f.voci, nuovaVoce];
         
         // Ricalcola anomalie con le nuove voci
-        const nuoveAnomalie = calculateAnomalie(voci, f.medicoId);
+        const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), f.medicoId);
         const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
         
         // Ricalcola totali
-        const totaleNetto = voci.reduce((sum, v) => sum + (v.importoNetto || 0), 0);
+        const totaleNetto = calculateTotaleImponibile(voci.map(v => ({ imponibile: v.importoNetto })));
         const iva = f.conIva ? totaleNetto * 0.22 : 0;
         const totale = totaleNetto + iva;
         
@@ -1070,7 +631,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         });
         
         // Calcola totali
-        const totaleNetto = vociConAnomalieRicalcolate.reduce((sum, v) => sum + (v.importoNetto || 0), 0);
+        const totaleNetto = calculateTotaleImponibile(vociConAnomalieRicalcolate.map(v => ({ imponibile: v.importoNetto })));
         
         // Calcola anomalie a livello fattura
         const anomalie = getAnomalieFattura({ ...f, voci: vociConAnomalieRicalcolate });
@@ -1305,7 +866,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         });
         
         // Ricalcola tutte le anomalie
-        const nuoveAnomalie = calculateAnomalie(voci, f.medicoId);
+        const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), f.medicoId);
         const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
         
         const updatedFattura = { ...f, voci, anomalie: nuoveAnomalie, stato: stato as any };
@@ -1337,7 +898,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         
         
         // Ricalcola tutte le anomalie basandosi sulle voci aggiornate
-        const nuoveAnomalie = calculateAnomalie(voci, f.medicoId);
+        const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), f.medicoId);
         const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
         
         const updatedFattura = { ...f, voci, anomalie: nuoveAnomalie, stato: stato as any };
@@ -1479,7 +1040,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         });
         
         // Ricalcola importi se necessario
-        const totaleNetto = voci.reduce((sum, v) => sum + (v.importoNetto || 0), 0);
+        const totaleNetto = calculateTotaleImponibile(voci.map(v => ({ imponibile: v.importoNetto })));
         const totaleIva = totaleNetto * 0.22;
         
         const anomalie = getAnomalieFattura({ ...f, voci });
@@ -1626,7 +1187,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                   <button
                     onClick={() => {
                       const selectElement = document.getElementById(`medico-select-${fatturaId}`) as HTMLSelectElement;
-                      const medicoId = parseInt(selectElement?.value || '0');
+                      const medicoId = Math.round(excelToNumber(selectElement?.value)) || 0;
                       if (medicoId) {
                         const medico = medici.find(m => m.id === medicoId);
                         if (medico && confirm(`Confermi l'assegnazione di ${medico.nome} ${medico.cognome} a questa fattura?`)) {
@@ -1669,7 +1230,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       
       // Calcola IVA in base alla serie - Solo serie "IVA" ha l'IVA
       const iva = (serie === 'IVA') ? imponibile * 0.22 : 0;
-      const lordo = imponibile + iva;
+      const lordo = calculateTotaleFattura(imponibile, iva);
       
       return {
         imponibile: acc.imponibile + imponibile,
@@ -1686,7 +1247,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       
       // Calcola IVA in base alla serie - Solo serie "IVA" ha l'IVA
       const iva = (serie === 'IVA') ? imponibile * 0.22 : 0;
-      const lordo = imponibile + iva;
+      const lordo = calculateTotaleFattura(imponibile, iva);
       
       if (!acc[medico]) {
         acc[medico] = { count: 0, imponibile: 0, iva: 0, lordo: 0 };
@@ -1709,7 +1270,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       
       // Solo serie "IVA" ha l'IVA 22%
       if (serie === 'IVA') {
-        const ivaCalcolata = (f.imponibile || 0) * 0.22;
+        const ivaCalcolata = calculateIva(f.imponibile || 0, 22);
         acc[serie].iva += ivaCalcolata;
         acc[serie].lordo += (f.imponibile || 0) + ivaCalcolata;
       } else {
@@ -1787,7 +1348,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     XLSX.utils.book_append_sheet(wb, ws, 'Voci Fatture');
     
     // Genera il file e scaricalo
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const timestamp = toSlug(new Date().toISOString());
     const fileName = `export_voci_fatture_${timestamp}.xlsx`;
     XLSX.writeFile(wb, fileName);
   };
@@ -1955,7 +1516,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                         </div>
                         <div className="mt-1 text-sm text-gray-600">
                           Quantità: {voce.quantita} {voce.unita} • 
-                          Importo: €{voce.importoNetto?.toFixed(2) || '0.00'}
+                          Importo: {formatCurrency(voce.importoNetto)}
                         </div>
                         {anomalieVoce.length > 0 && (
                           <div className="mt-2">
@@ -2009,7 +1570,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                                           step="0.01"
                                           value={prezzoTemp}
                                           onChange={(e) => {
-                                            const nuovoPrezzo = parseFloat(e.target.value) || 0;
+                                            const nuovoPrezzo = excelToNumber(e.target.value);
                                             setPrezzoTempProdottoOrfano(prev => ({
                                               ...prev,
                                               [prezzoKey]: nuovoPrezzo
@@ -2113,7 +1674,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                                       const key = `${fattura.id}-${voce.id}`;
                                       setQuantitaTemp(prev => ({
                                         ...prev,
-                                        [key]: parseInt(e.target.value) || 0
+                                        [key]: Math.round(excelToNumber(e.target.value)) || 0
                                       }));
                                     }}
                                     className="w-20 px-2 py-1 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-pink-500"
@@ -2158,7 +1719,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               return anomalie.includes('prestazione_incompleta');
             }).map(voce => {
               // Controlla se ci sono già prodotti per questa prestazione
-              const prodottiPresenti = fattura.voci.filter(v => 
+              const prodottiPresenti = (fattura.voci || []).filter(v => 
                 v.tipo === 'prodotto' && 
                 (v.prestazionePadre === voce.codice || 
                  (parseCodiceFattura(v.codice).isProdotto && parseCodiceFattura(v.codice).prestazione === voce.codice))
@@ -2200,7 +1761,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               return anomalie.includes('prestazione_senza_macchinario');
             }).map(voce => {
               // Controlla se ci sono già macchinari per questa prestazione
-              const macchinariPresenti = fattura.voci.filter(v => 
+              const macchinariPresenti = (fattura.voci || []).filter(v => 
                 v.codice.startsWith(voce.codice) && v.codice !== voce.codice
               );
               
@@ -2278,7 +1839,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             </div>
           </td>
           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-            {fattura.data || (fattura.dataEmissione ? new Date(fattura.dataEmissione).toLocaleDateString('it-IT') : '')}
+            {fattura.data || (fattura.dataEmissione ? formatDate(new Date(fattura.dataEmissione)) : '')}
           </td>
           <td className="px-6 py-4 text-sm text-gray-900">
             {fattura.paziente || fattura.clienteNome || ''}
@@ -2292,14 +1853,14 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           </td>
           <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
             <div>
-              <div className="font-medium text-gray-900">€ {fattura.imponibile.toFixed(2)}</div>
+              <div className="font-medium text-gray-900">{formatCurrency(fattura.imponibile)}</div>
               {fattura.serie === 'IVA' && (
-                <div className="text-xs text-gray-500">+IVA € {(fattura.iva || 0).toFixed(2)}</div>
+                <div className="text-xs text-gray-500">+IVA {formatCurrency(fattura.iva || 0)}</div>
               )}
             </div>
           </td>
           <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-            € {fattura.totale.toFixed(2)}
+            {formatCurrency(fattura.totale)}
           </td>
           <td className="px-6 py-4 whitespace-nowrap">
             <div className="flex flex-col gap-1">
@@ -2417,7 +1978,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                       <div>
                         <p className="font-medium">{prodotto.nome}</p>
                         <p className="text-sm text-gray-600">
-                          Codice: {prodotto.codice} • €{(prodotto as any).prezzoDefault || 0}/€{(prodotto as any).prezzoBase || 0} per {prodotto.unita}
+                          Codice: {prodotto.codice} • {formatCurrency((prodotto as any).prezzoDefault || 0)}/{formatCurrency((prodotto as any).prezzoBase || 0)} per {prodotto.unita}
                         </p>
                       </div>
                     </div>
@@ -2429,7 +1990,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                           type="number"
                           min="1"
                           value={selectedProdotto?.quantita || 1}
-                          onChange={(e) => handleQuantitaChange(prodotto.codice, parseInt(e.target.value) || 1)}
+                          onChange={(e) => handleQuantitaChange(prodotto.codice, Math.round(excelToNumber(e.target.value)) || 1)}
                           className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
                         />
                         <span className="text-sm text-gray-600">{prodotto.unita}</span>
@@ -2708,7 +2269,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                   min="0.01"
                   step="0.01"
                   value={prezzoSuggerito}
-                  onChange={(e) => setPrezzoSuggerito(parseFloat(e.target.value) || 0)}
+                  onChange={(e) => setPrezzoSuggerito(excelToNumber(e.target.value))}
                   className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#03A6A6] focus:border-transparent"
                   placeholder="0.00"
                 />
@@ -2731,7 +2292,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                   min="1"
                   step="1"
                   value={quantitaProdotto}
-                  onChange={(e) => setQuantitaProdotto(parseInt(e.target.value) || 1)}
+                  onChange={(e) => setQuantitaProdotto(Math.round(excelToNumber(e.target.value)) || 1)}
                   className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#03A6A6] focus:border-transparent"
                   placeholder="1"
                 />
@@ -3250,7 +2811,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-green-600">Imponibile</p>
-                  <p className="text-2xl font-bold text-green-900">€ {riepilogoMensile.totali.imponibile.toFixed(2)}</p>
+                  <p className="text-2xl font-bold text-green-900">{formatCurrency(riepilogoMensile.totali.imponibile)}</p>
                 </div>
                 <div className="p-3 bg-green-200 rounded-full">
                   <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3264,7 +2825,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-yellow-600">IVA</p>
-                  <p className="text-2xl font-bold text-yellow-900">€ {riepilogoMensile.totali.iva.toFixed(2)}</p>
+                  <p className="text-2xl font-bold text-yellow-900">{formatCurrency(riepilogoMensile.totali.iva)}</p>
                 </div>
                 <div className="p-3 bg-yellow-200 rounded-full">
                   <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3278,7 +2839,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-purple-600">Lordo Totale</p>
-                  <p className="text-2xl font-bold text-purple-900">€ {riepilogoMensile.totali.lordo.toFixed(2)}</p>
+                  <p className="text-2xl font-bold text-purple-900">{formatCurrency(riepilogoMensile.totali.lordo)}</p>
                 </div>
                 <div className="p-3 bg-purple-200 rounded-full">
                   <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3330,8 +2891,8 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                         <p className="text-sm text-gray-600">{dati.count} fatture</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-medium text-gray-900">€ {dati.lordo.toFixed(2)}</p>
-                        <p className="text-xs text-gray-500">Netto: € {dati.imponibile.toFixed(2)}</p>
+                        <p className="font-medium text-gray-900">{formatCurrency(dati.lordo)}</p>
+                        <p className="text-xs text-gray-500">Netto: {formatCurrency(dati.imponibile)}</p>
                       </div>
                     </div>
                   ))}
@@ -3351,8 +2912,8 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                         <p className="text-sm text-gray-600">{dati.count} fatture</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-medium text-gray-900">€ {dati.lordo.toFixed(2)}</p>
-                        <p className="text-xs text-gray-500">IVA: € {dati.iva.toFixed(2)}</p>
+                        <p className="font-medium text-gray-900">{formatCurrency(dati.lordo)}</p>
+                        <p className="text-xs text-gray-500">IVA: {formatCurrency(dati.iva)}</p>
                       </div>
                     </div>
                   ))}
@@ -3372,7 +2933,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             <div className="flex items-center gap-4">
               <span>© 2024 Poliestetica</span>
               <span className="text-gray-400">•</span>
-              <span>Ultimo aggiornamento: {new Date().toLocaleDateString('it-IT')}</span>
+              <span>Ultimo aggiornamento: {formatDate(new Date())}</span>
             </div>
           </div>
         </div>
@@ -3488,7 +3049,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         return (
           <ModalCorreggiCodice
             codiceAttuale={showCorreggiCodiceModal.codiceAttuale}
-            voceCorrente={voce}
+            voceCorrente={{ ...voce, anomalie: voce.anomalie || [] }}
             onConfirm={(nuovoCodice, prezzo, quantita) => handleCorreggiCodice(showCorreggiCodiceModal.fatturaId, showCorreggiCodiceModal.voceId, nuovoCodice, prezzo, quantita)}
             onCancel={() => setShowCorreggiCodiceModal(null)}
           />
@@ -3603,7 +3164,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                       {campo.required && <span className="text-red-500 ml-1">*</span>}
                     </div>
                     <select
-                      value={fieldMapping[campo.key] || ''}
+                      value={fieldMapping[campo.key as keyof FieldMapping] || ''}
                       onChange={(e) => setFieldMapping({
                         ...fieldMapping,
                         [campo.key]: e.target.value
