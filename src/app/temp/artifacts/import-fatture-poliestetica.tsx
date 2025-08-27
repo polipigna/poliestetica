@@ -526,67 +526,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     }));
   };
 
-  // Funzione non utilizzata ma potrebbe essere utile in futuro
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleAggiungiPrestazioneMancante = (fatturaId: number, codicePrestazione: string) => {
-    const prestazione = prestazioniMap[codicePrestazione];
-    if (!prestazione) {
-      console.error('Prestazione non trovata:', codicePrestazione);
-      return;
-    }
-
-    setFatture(fatture.map(f => {
-      if (f.id === fatturaId && f.voci) {
-        const nuovaVoce: VoceFattura = {
-          id: Date.now(),
-          codice: codicePrestazione,
-          descrizione: prestazione.descrizione,
-          tipo: 'prestazione',
-          importoNetto: 300, // Importo standard per prestazione
-          importoLordo: 300,
-          quantita: 1,
-          unita: 'prestazione',
-          anomalie: []
-        };
-        
-        const voci = [...f.voci, nuovaVoce];
-        
-        // Ricalcola anomalie con le nuove voci
-        const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), f.medicoId);
-        const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
-        
-        // Ricalcola totali
-        const totaleNetto = calculateTotaleImponibile(voci.map(v => ({ imponibile: v.importoNetto })));
-        const iva = f.conIva ? totaleNetto * 0.22 : 0;
-        const totale = totaleNetto + iva;
-        
-        const updatedFattura = {
-          ...f,
-          voci,
-          imponibile: totaleNetto,
-          iva,
-          totale,
-          anomalie: nuoveAnomalie,
-          stato: stato as any
-        };
-        
-        if (onUpdateFattura) {
-          onUpdateFattura(fatturaId, updatedFattura);
-        }
-        
-        return updatedFattura;
-      }
-      return f;
-    }));
-    
-    // Se la prestazione richiede prodotti, apri il modal per aggiungerli
-    if (prestazione.richiedeProdotti) {
-      setTimeout(() => {
-        setShowAddProdottiModal({ fatturaId, prestazione: codicePrestazione });
-      }, 500);
-    }
-  };
-
   const handleAggiornaPrezzoEAssociaPrestazione = (fatturaId: number, voceId: number, nuovoPrezzo: number, codicePrestazione: string) => {
     setFatture(fatture.map(f => {
       if (f.id === fatturaId && f.voci) {
