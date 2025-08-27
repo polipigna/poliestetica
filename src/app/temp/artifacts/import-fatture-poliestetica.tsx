@@ -2862,21 +2862,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         </div>
       </div>
 
-      {/* Footer */}
-      <footer className="bg-gray-50 border-t border-gray-200 mt-8">
-        <div className="px-6 py-4">
-          <div className="flex items-center justify-between text-sm text-gray-600">
-            <div>
-              <p>Sistema Import Fatture Poliestetica v1.0</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <span>© 2024 Poliestetica</span>
-              <span className="text-gray-400">•</span>
-              <span>Ultimo aggiornamento: {formatDate(new Date())}</span>
-            </div>
-          </div>
-        </div>
-      </footer>
 
       {/* Modals */}
       {showAssignMedico && (

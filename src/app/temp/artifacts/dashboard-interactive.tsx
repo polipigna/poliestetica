@@ -6,12 +6,7 @@ import {
   X,
   Calendar,
   ChevronRight,
-  AlertCircle,
-  Eye,
-  Download,
-  Upload,
-  FileText,
-  ChevronLeft
+  AlertCircle
 } from 'lucide-react';
 
 // Logo Component
@@ -200,7 +195,7 @@ export default function Dashboard() {
     { name: 'Paolo Verdi', role: 'responsabile', email: 'paolo.verdi@poliestetica.com' }
   ];
 
-  const handleMenuClick = (menuId) => {
+  const handleMenuClick = (menuId: string) => {
     console.log(`Navigating to: ${menuId}`);
     setActiveSection(menuId);
   };
@@ -291,12 +286,12 @@ export default function Dashboard() {
     }, 2000);
   };
 
-  const dismissNotification = (id) => {
+  const dismissNotification = (id: number) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
   // Sezione demo placeholder
-  const DemoSection = ({ title }) => (
+  const DemoSection = ({ title }: { title: string }) => (
     <div className="bg-white rounded-xl shadow-sm p-8">
       <h2 className="text-2xl font-semibold text-gray-800 mb-4">{title}</h2>
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
@@ -389,7 +384,9 @@ export default function Dashboard() {
                   value={currentUser.email}
                   onChange={(e) => {
                     const user = demoUsers.find(u => u.email === e.target.value);
-                    setCurrentUser(user);
+                    if (user) {
+                      setCurrentUser(user);
+                    }
                   }}
                   className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
                 >
