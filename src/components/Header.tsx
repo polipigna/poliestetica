@@ -8,41 +8,16 @@ import {
   RefreshCw
 } from 'lucide-react';
 
-// Logo Component - Usa il logo aziendale se disponibile, altrimenti un SVG di fallback
+// Logo Component
 const CompanyLogo = () => {
-  const [imageError, setImageError] = useState(false);
-  
-  // SVG di fallback se il logo non è disponibile
-  const FallbackLogo = () => (
-    <svg width="50" height="50" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M20 30 Q50 15, 80 30 Q85 50, 70 70 Q50 80, 30 70 Q15 50, 20 30" fill="url(#gradient1)" opacity="0.8"/>
-      <path d="M30 40 Q60 25, 85 45 Q80 65, 60 75 Q40 85, 25 65 Q20 45, 30 40" fill="url(#gradient2)" opacity="0.6"/>
-      <defs>
-        <linearGradient id="gradient1" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#03A6A6"/>
-          <stop offset="100%" stopColor="#6192A9"/>
-        </linearGradient>
-        <linearGradient id="gradient2" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#6192A9"/>
-          <stop offset="100%" stopColor="#03A6A6"/>
-        </linearGradient>
-      </defs>
-    </svg>
-  );
-
-  if (imageError) {
-    return <FallbackLogo />;
-  }
-
   return (
     <div className="relative w-[100px] h-[100px]">
       <Image
-        src="/images/logo.png" // Metti il tuo logo qui: public/images/logo.png
+        src="/images/logo.png"
         alt="Poliestetica Logo"
         width={100}
         height={100}
         className="object-contain"
-        onError={() => setImageError(true)}
         priority
       />
     </div>
