@@ -35,12 +35,12 @@ const CompanyLogo = () => {
   }
 
   return (
-    <div className="relative w-[50px] h-[50px]">
+    <div className="relative w-[100px] h-[100px]">
       <Image
         src="/images/logo.png" // Metti il tuo logo qui: public/images/logo.png
         alt="Poliestetica Logo"
-        width={50}
-        height={50}
+        width={100}
+        height={100}
         className="object-contain"
         onError={() => setImageError(true)}
         priority
