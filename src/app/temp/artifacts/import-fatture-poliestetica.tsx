@@ -453,29 +453,75 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         const prestazione = prestazioniMap[codicePrestazione];
         if (!prestazione) return f;
         
-        // Crea la nuova voce prestazione con il prezzo inserito
+        // Formatta il prezzo con due decimali
+        const prezzoFormattato = parseFloat(nuovoPrezzo.toFixed(2));
+        
+        // Trova la voce originale per verificare se è già una prestazione con prezzo
+        const voceOriginale = f.voci.find(v => v.id === voceId);
+        const isPrestazione = voceOriginale?.tipo === 'prestazione';
+        
+        // Se la voce è già una prestazione con prezzo, mantieni il prezzo formattato
+        if (isPrestazione && prezzoFormattato > 0) {
+          // Aggiorna solo l'associazione mantenendo il prezzo
+          const vociAggiornate = f.voci.map(v => {
+            if (v.id === voceId) {
+              return {
+                ...v,
+                prestazionePadre: codicePrestazione,
+                importoNetto: prezzoFormattato,
+                importoLordo: prezzoFormattato,
+                // Rimuovi l'anomalia prodotto_orfano
+                ...rimuoviAnomalieVoce(v, ['prodotto_orfano'])
+              };
+            }
+            return v;
+          });
+          
+          // Ricalcola tutte le anomalie
+          const vociConAnomalieRicalcolate = vociAggiornate.map(v => {
+            const anomalieVoce = AnomalieCalculator.verificaAnomalieVoce(
+              v, vociAggiornate, prestazioniMap, prodottiMap
+            );
+            return { ...v, anomalie: anomalieVoce };
+          });
+          
+          const anomalieFattura = AnomalieCalculator.getAnomalieFattura({
+            ...f,
+            voci: vociConAnomalieRicalcolate
+          });
+          
+          return {
+            ...f,
+            voci: vociConAnomalieRicalcolate,
+            anomalie: anomalieFattura
+          };
+        }
+        
+        // Altrimenti crea la nuova voce prestazione con il prezzo inserito
         const nuovaVocePrestazione: VoceFattura = {
           id: Date.now() + Math.random(),
           codice: codicePrestazione,
           descrizione: prestazione.descrizione,
           tipo: 'prestazione',
-          importoNetto: nuovoPrezzo,
-          importoLordo: nuovoPrezzo,
+          importoNetto: prezzoFormattato,
+          importoLordo: prezzoFormattato,
           quantita: 1,
           unita: 'prestazione',
           anomalie: []
         };
         
-        // Aggiorna la voce prodotto esistente: associala alla prestazione e azzera il prezzo
+        // Aggiorna la voce prodotto esistente: associala alla prestazione
         const vociAggiornate = f.voci.map(v => {
           if (v.id === voceId) {
+            // Se il prodotto ha già un prezzo diverso da zero, mantienilo
+            const mantienIlPrezzo = v.importoNetto > 0;
             return {
               ...v,
               prestazionePadre: codicePrestazione,
-              importoNetto: 0, // I prodotti hanno sempre prezzo 0
-              importoLordo: 0,
-              // Rimuovi le anomalie prodotto_orfano e prodotto_con_prezzo se presente
-              ...rimuoviAnomalieVoce(v, ['prodotto_orfano', 'prodotto_con_prezzo'])
+              importoNetto: mantienIlPrezzo ? parseFloat(v.importoNetto.toFixed(2)) : 0,
+              importoLordo: mantienIlPrezzo ? parseFloat(v.importoLordo.toFixed(2)) : 0,
+              // Rimuovi le anomalie prodotto_orfano e prodotto_con_prezzo se il prezzo è 0
+              ...rimuoviAnomalieVoce(v, mantienIlPrezzo ? ['prodotto_orfano'] : ['prodotto_orfano', 'prodotto_con_prezzo'])
             };
           }
           return v;
@@ -1408,7 +1454,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                                         </span>
                                       </div>
                                       <div className="flex items-center gap-2">
-                                        <span className="text-xs text-gray-600">Prezzo:</span>
+                                        <span className="text-xs text-gray-600">
+                                          {voce.importoNetto > 0 ? 'Prezzo attuale:' : 'Prezzo:'}
+                                        </span>
                                         <input
                                           type="number"
                                           min="0.01"
@@ -1425,6 +1473,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                                           placeholder="0.00"
                                         />
                                         <span className="text-xs text-gray-600">€</span>
+                                        {voce.importoNetto > 0 && prezzoTemp === voce.importoNetto && (
+                                          <span className="text-xs text-green-600">(mantieni prezzo)</span>
+                                        )}
                                         <button
                                           onClick={() => {
                                             console.log('Correggi prodotto orfano:', { 
@@ -1433,8 +1484,8 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                                               prestazione: prestazioneSuggerita,
                                               prezzo: prezzoTemp
                                             });
-                                            // Prima aggiorna il prezzo se necessario
-                                            if (prezzoTemp !== voce.importoNetto && prezzoTemp > 0) {
+                                            // Se il prezzo è > 0, usa sempre handleAggiornaPrezzoEAssociaPrestazione
+                                            if (prezzoTemp > 0) {
                                               handleAggiornaPrezzoEAssociaPrestazione(fattura.id, voce.id, prezzoTemp, prestazioneSuggerita);
                                             } else {
                                               handleAssociaPrestazione(fattura.id, voce.id, prestazioneSuggerita);

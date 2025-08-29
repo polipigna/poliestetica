@@ -14,14 +14,14 @@ import {
   combinazioni 
 } from '@/data/mock';
 
-export interface VoceFatturaEstesa extends Omit<VoceFattura, 'anomalie'> {
-  anomalie?: string[];
+export interface VoceFatturaEstesa extends VoceFattura {
   prestazionePadre?: string;
 }
 
 export interface FatturaConVoci extends Fattura {
-  voci?: VoceFatturaEstesa[];
-  anomalie?: string[];
+
+  voci: VoceFatturaEstesa[];
+  anomalie: string[];
   dataEmissione?: string;
   clienteNome?: string;
 }
@@ -209,8 +209,8 @@ export class AnomalieCalculator {
       anomalie.push('medico_mancante');
     }
     
-    // Analizza voci se esistono
-    if (fattura.voci && Array.isArray(fattura.voci)) {
+    // Analizza voci
+    if (fattura.voci.length > 0) {
       // Verifica prestazioni duplicate
       const codiciPrestazioni = fattura.voci
         .filter(v => v.tipo === 'prestazione')
@@ -243,13 +243,13 @@ export class AnomalieCalculator {
     prodottiMap: Record<string, Prodotto>
   ): FatturaConVoci {
     // Prima calcola le anomalie per ogni voce
-    const vociConAnomalie = fattura.voci ? fattura.voci.map(voce => {
-      const anomalieVoce = this.verificaAnomalieVoce(voce, fattura.voci || [], prestazioniMap, prodottiMap);
+    const vociConAnomalie = fattura.voci.map(voce => {
+      const anomalieVoce = this.verificaAnomalieVoce(voce, fattura.voci, prestazioniMap, prodottiMap);
       return {
         ...voce,
         anomalie: anomalieVoce
       };
-    }) : [];
+    });
     
     // Aggiorna fattura con le voci aggiornate
     const fatturaAggiornata = {
