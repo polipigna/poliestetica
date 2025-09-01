@@ -868,80 +868,140 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     }, 1500);
   };
 
-  // Renderizza anomalie con altezza fissa e scroll se necessario
-  const renderAnomalie = (anomalie: string[], fatturaId?: number) => {
-    const anomalieMap: Record<string, { label: string; color: string; icon: any }> = {
-      'medico_mancante': { label: 'Medico mancante', color: 'text-red-600', icon: AlertCircle },
-      'prodotto_con_prezzo': { label: 'Prodotto con prezzo', color: 'text-amber-600', icon: AlertTriangle },
-      'prestazione_incompleta': { label: 'Prodotti mancanti', color: 'text-orange-600', icon: Package },
-      'prestazione_senza_macchinario': { label: 'Macchinario mancante', color: 'text-yellow-600', icon: AlertTriangle },
-      'prodotto_orfano': { label: 'Prodotto senza prestazione', color: 'text-purple-600', icon: AlertTriangle },
-      'codice_sconosciuto': { label: 'Codice non valido', color: 'text-red-700', icon: X },
-      'prestazione_duplicata': { label: 'Prestazione duplicata', color: 'text-blue-600', icon: RefreshCw },
-      'unita_incompatibile': { label: 'Unità incompatibile', color: 'text-indigo-600', icon: AlertTriangle },
-      'quantita_anomala': { label: 'Quantità anomala', color: 'text-pink-600', icon: AlertCircle }
+  // Renderizza anomalie - mostra solo la principale con contatore (o tutte se showAll = true)
+  const renderAnomalie = (anomalie: string[], fatturaId?: number, showAll: boolean = false) => {
+    const anomalieMap: Record<string, { label: string; color: string; icon: any; priority: number }> = {
+      'codice_sconosciuto': { label: 'Codice non valido', color: 'text-red-700', icon: X, priority: 1 },
+      'medico_mancante': { label: 'Medico mancante', color: 'text-red-600', icon: AlertCircle, priority: 2 },
+      'prestazione_incompleta': { label: 'Prodotti mancanti', color: 'text-orange-600', icon: Package, priority: 3 },
+      'prestazione_senza_macchinario': { label: 'Macchinario mancante', color: 'text-yellow-600', icon: AlertTriangle, priority: 4 },
+      'unita_incompatibile': { label: 'Unità incompatibile', color: 'text-indigo-600', icon: AlertTriangle, priority: 5 },
+      'prodotto_con_prezzo': { label: 'Prodotto con prezzo', color: 'text-amber-600', icon: AlertTriangle, priority: 6 },
+      'prodotto_orfano': { label: 'Prodotto senza prestazione', color: 'text-purple-600', icon: AlertTriangle, priority: 7 },
+      'quantita_anomala': { label: 'Quantità anomala', color: 'text-pink-600', icon: AlertCircle, priority: 8 },
+      'prestazione_duplicata': { label: 'Prestazione duplicata', color: 'text-blue-600', icon: RefreshCw, priority: 9 }
     };
 
-    // Container con altezza fissa e scroll se ci sono troppe anomalie
-    return (
-      <div 
-        className="h-10 overflow-y-auto overflow-x-hidden border border-gray-200 rounded-md bg-gray-50 p-1"
-        style={{ 
-          scrollbarWidth: 'thin',
-          scrollbarColor: '#9ca3af #f3f4f6'
-        }}
-      >
+    // Ordina le anomalie per priorità
+    const anomalieUniche = [...new Set(anomalie)];
+    const anomalieOrdinate = anomalieUniche.sort((a, b) => {
+      const priorityA = anomalieMap[a]?.priority || 999;
+      const priorityB = anomalieMap[b]?.priority || 999;
+      return priorityA - priorityB;
+    });
+
+    if (anomalieOrdinate.length === 0) return null;
+
+    // Se showAll è true, mostra tutte le anomalie
+    if (showAll) {
+      return (
         <div className="flex flex-wrap gap-1">
-          {[...new Set(anomalie)].map((anomalia, idx) => {
+          {anomalieOrdinate.map((anomalia, idx) => {
             const config = anomalieMap[anomalia];
             if (!config) return null;
-            
             const Icon = config.icon;
             return (
-              <div key={idx} className="flex items-center gap-2">
-                <span 
-                  className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-gray-100 ${config.color}`}
-                >
-                  <Icon className="w-3 h-3" />
-                  {config.label}
-                </span>
-                {anomalia === 'medico_mancante' && fatturaId && (
-                  <div className="flex items-center gap-2">
-                    <select
-                      className="text-xs border border-gray-300 rounded px-2 py-1"
-                      id={`medico-select-${fatturaId}`}
-                      defaultValue=""
-                    >
-                      <option value="">Seleziona medico...</option>
-                      {medici.map(m => (
-                        <option key={m.id} value={m.id}>
-                          {m.nome} {m.cognome}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => {
-                        const selectElement = document.getElementById(`medico-select-${fatturaId}`) as HTMLSelectElement;
-                        const medicoId = Math.round(excelToNumber(selectElement?.value)) || 0;
-                        if (medicoId) {
-                          const medico = medici.find(m => m.id === medicoId);
-                          if (medico && confirm(`Confermi l'assegnazione di ${medico.nome} ${medico.cognome} a questa fattura?`)) {
-                            handleAssegnaMedicoSingolo(fatturaId, medicoId, `${medico.nome} ${medico.cognome}`);
-                          }
-                        } else {
-                          alert('Seleziona un medico prima di confermare');
-                        }
-                      }}
-                      className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
-                    >
-                      Conferma
-                    </button>
-                  </div>
-                )}
-              </div>
+              <span 
+                key={idx}
+                className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-gray-100 ${config.color} whitespace-nowrap`}
+              >
+                <Icon className="w-3 h-3" />
+                {config.label}
+              </span>
             );
           })}
+          {anomalieOrdinate.includes('medico_mancante') && fatturaId && (
+            <div className="flex items-center gap-2">
+              <select
+                className="text-xs border border-gray-300 rounded px-2 py-1"
+                id={`medico-select-${fatturaId}`}
+                defaultValue=""
+              >
+                <option value="">Seleziona medico...</option>
+                {medici.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.nome} {m.cognome}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => {
+                  const selectElement = document.getElementById(`medico-select-${fatturaId}`) as HTMLSelectElement;
+                  const medicoId = Math.round(excelToNumber(selectElement?.value)) || 0;
+                  if (medicoId) {
+                    const medico = medici.find(m => m.id === medicoId);
+                    if (medico && confirm(`Confermi l'assegnazione di ${medico.nome} ${medico.cognome} a questa fattura?`)) {
+                      handleAssegnaMedicoSingolo(fatturaId, medicoId, `${medico.nome} ${medico.cognome}`);
+                    }
+                  } else {
+                    alert('Seleziona un medico prima di confermare');
+                  }
+                }}
+                className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Conferma
+              </button>
+            </div>
+          )}
         </div>
+      );
+    }
+
+    // Altrimenti mostra solo la principale con contatore
+    const anomaliaPrincipale = anomalieOrdinate[0];
+    const config = anomalieMap[anomaliaPrincipale];
+    if (!config) return null;
+
+    const Icon = config.icon;
+    const numeroAltre = anomalieOrdinate.length - 1;
+
+    return (
+      <div className="flex items-center gap-2">
+        <span 
+          className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-gray-100 ${config.color} whitespace-nowrap`}
+          title={anomalieOrdinate.map(a => anomalieMap[a]?.label || a).join(', ')}
+        >
+          <Icon className="w-3 h-3" />
+          {config.label}
+        </span>
+        {numeroAltre > 0 && (
+          <span className="px-1.5 py-0.5 text-xs font-bold text-gray-600 bg-gray-200 rounded-full">
+            +{numeroAltre}
+          </span>
+        )}
+        {anomaliaPrincipale === 'medico_mancante' && fatturaId && (
+          <div className="flex items-center gap-2">
+            <select
+              className="text-xs border border-gray-300 rounded px-2 py-1"
+              id={`medico-select-${fatturaId}`}
+              defaultValue=""
+            >
+              <option value="">Seleziona medico...</option>
+              {medici.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.nome} {m.cognome}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => {
+                const selectElement = document.getElementById(`medico-select-${fatturaId}`) as HTMLSelectElement;
+                const medicoId = Math.round(excelToNumber(selectElement?.value)) || 0;
+                if (medicoId) {
+                  const medico = medici.find(m => m.id === medicoId);
+                  if (medico && confirm(`Confermi l'assegnazione di ${medico.nome} ${medico.cognome} a questa fattura?`)) {
+                    handleAssegnaMedicoSingolo(fatturaId, medicoId, `${medico.nome} ${medico.cognome}`);
+                  }
+                } else {
+                  alert('Seleziona un medico prima di confermare');
+                }
+              }}
+              className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
+              Conferma
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -1240,7 +1300,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
     return (
       <tr>
-        <td colSpan={10} className="px-6 py-4 bg-gray-50">
+        <td colSpan={12} className="px-6 py-4 bg-gray-50">
           <div className="space-y-4">
             <h4 className="font-medium text-sm text-gray-900">Dettaglio voci fattura</h4>
             <div className="space-y-2">
@@ -1268,7 +1328,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                         </div>
                         {anomalieVoce.length > 0 && (
                           <div className="mt-2">
-                            {renderAnomalie(anomalieVoce)}
+                            {renderAnomalie(anomalieVoce, undefined, true)}
                             <div className="mt-2 flex gap-2">
                               {anomalieVoce.includes('prodotto_con_prezzo') && (
                                 <button
@@ -1566,7 +1626,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       : getAnomalieFattura(fattura);
     const hasAnomalie = anomalie.length > 0;
     const isExpanded = isFatturaExpanded(fattura.id);
-    const canImport = canImportFattura(fattura);
     
     // Debug: verifica coerenza stato/anomalie
     if (fattura.stato === 'anomalia' && !hasAnomalie) {
@@ -1576,7 +1635,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     return (
       <React.Fragment key={fattura.id}>
         <tr className={`hover:bg-gray-50 ${indented ? 'pl-8' : ''}`}>
-          <td className="px-6 py-4 whitespace-nowrap">
+          <td className="w-12 px-6 py-4 whitespace-nowrap">
             <input
               type="checkbox"
               checked={selectedFatture.includes(fattura.id)}
@@ -1586,9 +1645,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               title={hasAnomalie ? 'Non selezionabile - correggere anomalie prima dell\'importazione' : ''}
             />
           </td>
-          <td className="px-6 py-4 whitespace-nowrap text-sm">
+          <td className="w-24 px-6 py-4 whitespace-nowrap text-sm">
             <div className="flex items-center gap-2">
-              <span className="font-medium text-gray-900">{fattura.numero}</span>
+              <span className="font-medium text-gray-900 truncate">{fattura.numero}</span>
               {fattura.serie !== 'principale' && (
                 <span className="px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-700">
                   {fattura.serie}
@@ -1596,50 +1655,41 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               )}
             </div>
           </td>
-          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+          <td className="w-28 px-6 py-4 whitespace-nowrap text-sm text-gray-600">
             {fattura.data || (fattura.dataEmissione ? formatDate(new Date(fattura.dataEmissione)) : '')}
           </td>
-          <td className="px-6 py-4 text-sm text-gray-900">
-            {fattura.paziente || fattura.clienteNome || ''}
+          <td className="w-40 px-6 py-4 text-sm text-gray-900">
+            <span className="block truncate">{fattura.paziente || fattura.clienteNome || ''}</span>
           </td>
-          <td className="px-6 py-4 text-sm">
+          <td className="w-40 px-6 py-4 text-sm">
             {fattura.medicoNome ? (
-              <span className="text-gray-900">{fattura.medicoNome}</span>
+              <span className="text-gray-900 block truncate">{fattura.medicoNome}</span>
             ) : (
               <span className="text-red-600 font-medium">Non assegnato</span>
             )}
           </td>
-          <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-            <div>
-              <div className="font-medium text-gray-900">{formatCurrency(fattura.imponibile)}</div>
-              {fattura.serie === 'IVA' && (
-                <div className="text-xs text-gray-500">+IVA {formatCurrency(fattura.iva || 0)}</div>
-              )}
-            </div>
+          <td className="w-28 px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
+            {formatCurrency(fattura.imponibile)}
           </td>
-          <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
+          <td className="w-20 px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
+            {fattura.serie === 'IVA' ? formatCurrency(fattura.iva || 0) : '-'}
+          </td>
+          <td className="w-28 px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
             {formatCurrency(fattura.totale)}
           </td>
-          <td className="px-6 py-4 whitespace-nowrap">
-            <div className="flex flex-col gap-1">
-              {renderStatoBadge(fattura.stato || 'da_importare')}
-              {hasAnomalie && renderAnomalie(anomalie, fattura.id)}
-            </div>
+          <td className="w-32 px-6 py-4 whitespace-nowrap">
+            {renderStatoBadge(fattura.stato || 'da_importare')}
           </td>
-          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+          <td className="w-48 px-6 py-4">
+            {hasAnomalie && renderAnomalie(anomalie, fattura.id)}
+          </td>
+          <td className="w-16 px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
             <button
               onClick={() => toggleExpanded(fattura.id)}
               className="text-[#03A6A6] hover:text-[#028a8a]"
             >
               {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </button>
-          </td>
-          <td className="px-6 py-4 whitespace-nowrap text-center">
-            {!canImport && (
-              <div title="Non importabile - correggere anomalie">
-                <AlertCircle className="w-4 h-4 text-red-500" />
-              </div>
-            )}
           </td>
         </tr>
         {isExpanded && renderVociDettagli(fattura)}
@@ -2366,41 +2416,44 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       <div className="px-6">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
+            <table className="min-w-full divide-y divide-gray-200 table-fixed">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left">
+                  <th className="w-12 px-6 py-3 text-left">
                     <input
                       type="checkbox"
                       onChange={(e) => handleSelectAll(e.target.checked)}
                       className="rounded border-gray-300 text-[#03A6A6] focus:ring-[#03A6A6]"
                     />
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-24 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Numero
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-28 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Data
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-40 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Paziente
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-40 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Medico
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-28 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Imponibile
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-20 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    IVA
+                  </th>
+                  <th className="w-28 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Totale
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-32 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Stato
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Azioni
+                  <th className="w-48 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Anomalie
                   </th>
-                  <th className="px-6 py-3"></th>
+                  <th className="w-16 px-6 py-3"></th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
