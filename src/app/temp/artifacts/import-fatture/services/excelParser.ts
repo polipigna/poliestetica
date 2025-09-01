@@ -166,26 +166,37 @@ export class ExcelParser {
       { key: 'codice', patterns: ['codice', 'articolo', 'cod.', 'servizio', 'cod', 'codice articolo'] },
       { key: 'serie', patterns: ['serie', 'serie fattura', 'serie documento'] },
       { key: 'quantita', patterns: ['quantità', 'quantita', 'qta', 'q.tà', 'qt', 'qty'] },
-      { key: 'unita', patterns: ['u.m.', 'U.M.', 'um', 'UM', 'unità', 'unita', 'unità misura', 'unita misura', 'unità di misura', 'unita di misura'] },
+      { key: 'unita', patterns: ['u.m.', 'u.m', 'um', 'unità', 'unita', 'unità misura', 'unita misura', 'unità di misura', 'unita di misura'] },
       { key: 'importo', patterns: ['prezzo totale', 'importo', 'prezzo', 'totale', 'imponibile', 'netto'] },
       { key: 'iva', patterns: ['iva', 'imposta', 'aliquota', 'tax', '% iva'] }
     ];
     
-    console.log('Headers disponibili per mapping:', headers);
+    // Mantieni traccia degli headers già mappati per evitare duplicati
+    const headersMappati = new Set<string>();
     
     campiSistema.forEach(campo => {
       const matchedHeader = headers.find(h => {
         if (!h || typeof h !== 'string') return false;
-        const headerLower = cleanString(h.toLowerCase());
+        if (headersMappati.has(h)) return false; // Skip se già mappato
+        
+        // Normalizza l'header rimuovendo spazi e convertendo in lowercase
+        const headerNormalized = h.toLowerCase().replace(/\s+/g, ' ').trim();
+        
         return campo.patterns.some(p => {
-          const patternLower = p.toLowerCase();
-          return headerLower === patternLower || headerLower.includes(patternLower);
+          // Normalizza anche il pattern
+          const patternNormalized = p.toLowerCase().replace(/\s+/g, ' ').trim();
+          
+          // Confronta esattamente o verifica se l'header contiene il pattern
+          return headerNormalized === patternNormalized || 
+                 headerNormalized.includes(patternNormalized) ||
+                 // Caso speciale per U.M. - confronta anche senza punti
+                 (headerNormalized.replace(/\./g, '') === patternNormalized.replace(/\./g, ''));
         });
       });
       
       if (matchedHeader) {
-        console.log(`Mappato campo ${campo.key} -> ${matchedHeader}`);
         mapping[campo.key] = matchedHeader;
+        headersMappati.add(matchedHeader); // Marca come già usato
       }
     });
     
