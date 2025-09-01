@@ -1,41 +1,43 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 
 interface UseExpandedReturn {
-  expandedItems: number[];
-  isExpanded: (id: number) => boolean;
-  toggleExpanded: (id: number) => void;
-  expandAll: (ids: number[]) => void;
+  expandedFatture: number[];
+  isExpanded: (fatturaId: number) => boolean;
+  toggleExpanded: (fatturaId: number) => void;
+  expandAll: (fattureIds: number[]) => void;
   collapseAll: () => void;
+  setExpandedFatture: React.Dispatch<React.SetStateAction<number[]>>;
 }
 
-export function useExpanded(): UseExpandedReturn {
-  const [expandedItems, setExpandedItems] = useState<number[]>([]);
+export function useExpanded(initialExpanded: number[] = []): UseExpandedReturn {
+  const [expandedFatture, setExpandedFatture] = useState<number[]>(initialExpanded);
 
-  const isExpanded = (id: number): boolean => {
-    return expandedItems.includes(id);
-  };
+  const isExpanded = useCallback((fatturaId: number): boolean => {
+    return expandedFatture.includes(fatturaId);
+  }, [expandedFatture]);
 
-  const toggleExpanded = (id: number) => {
-    if (expandedItems.includes(id)) {
-      setExpandedItems(expandedItems.filter(itemId => itemId !== id));
-    } else {
-      setExpandedItems([...expandedItems, id]);
-    }
-  };
+  const toggleExpanded = useCallback((fatturaId: number): void => {
+    setExpandedFatture(prev => 
+      prev.includes(fatturaId) 
+        ? prev.filter(id => id !== fatturaId)
+        : [...prev, fatturaId]
+    );
+  }, []);
 
-  const expandAll = (ids: number[]) => {
-    setExpandedItems(ids);
-  };
+  const expandAll = useCallback((fattureIds: number[]): void => {
+    setExpandedFatture(fattureIds);
+  }, []);
 
-  const collapseAll = () => {
-    setExpandedItems([]);
-  };
+  const collapseAll = useCallback((): void => {
+    setExpandedFatture([]);
+  }, []);
 
   return {
-    expandedItems,
+    expandedFatture,
     isExpanded,
     toggleExpanded,
     expandAll,
-    collapseAll
+    collapseAll,
+    setExpandedFatture
   };
 }

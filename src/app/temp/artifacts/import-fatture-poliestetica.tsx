@@ -47,13 +47,13 @@ import {
 import {
   ExcelParser,
   FattureProcessor,
-  AnomalieCalculator,
   type FatturaConVoci,
   type FieldMapping
 } from './import-fatture/services';
 
 // Import degli hooks
 import { useAnomalie } from './import-fatture/hooks/useAnomalie';
+import { useExpanded } from './import-fatture/hooks/useExpanded';
 
 // Le interfacce sono ora importate dai services
 
@@ -103,16 +103,19 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     prestazioniMap,
     prodottiMap
   );
-  const { verificaAnomalieVoce, getAnomalieFattura, ricalcolaAnomalieFattura } = anomalieHelper;
+  const { 
+    verificaAnomalieVoce, 
+    getAnomalieFattura, 
+    ricalcolaAnomalieFattura, 
+    rimuoviAnomalieVoce,
+    getUnitaCorretta,
+    isUnitaCorregibile,
+    aggiornaFatturaCompleta
+  } = anomalieHelper;
 
-  // Helper per rimuovere anomalie specifiche da una voce
-  const rimuoviAnomalieVoce = (voce: any, anomalieDaRimuovere: string | string[]) => {
-    const anomalieArray = Array.isArray(anomalieDaRimuovere) ? anomalieDaRimuovere : [anomalieDaRimuovere];
-    return {
-      ...voce,
-      anomalie: voce.anomalie ? voce.anomalie.filter((a: string) => !anomalieArray.includes(a)) : []
-    };
-  };
+  // Usa l'hook useExpanded per gestire lo stato delle fatture espanse
+  const { expandedFatture, isExpanded: isFatturaExpanded, toggleExpanded } = useExpanded();
+
 
   // Usa le fatture dai props - inizializza con anomalie calcolate una sola volta
   const [fatture, setFatture] = useState<FatturaConVoci[]>(() => {
@@ -121,7 +124,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   });
 
   const [selectedFatture, setSelectedFatture] = useState<number[]>([]);
-  const [expandedFatture, setExpandedFatture] = useState<number[]>([]);
   const [filtroStato, setFiltroStato] = useState('tutti');
   const [filtroDataDa, setFiltroDataDa] = useState('');
   const [filtroDataA, setFiltroDataA] = useState('');
@@ -303,14 +305,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   }, [fatture, filtroStato, filtroDataDa, filtroDataA, filtroAnomalia, filtroMedico, filtroSerie, getAnomalieFattura]);
 
 
-  // Toggle expanded
-  const toggleExpanded = (fatturaId: number) => {
-    if (expandedFatture.includes(fatturaId)) {
-      setExpandedFatture(expandedFatture.filter(id => id !== fatturaId));
-    } else {
-      setExpandedFatture([...expandedFatture, fatturaId]);
-    }
-  };
 
   // Verifica se import è consentito
   const canImportFattura = (fattura: FatturaConVoci): boolean => {
@@ -347,17 +341,10 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   const handleAssignMedico = (medicoId: number, medicoNome: string) => {
     setFatture(fatture.map(f => {
       if (selectedFatture.includes(f.id)) {
-        // Rimuovi anomalia medico_mancante se presente
-        const nuoveAnomalie = (f.anomalie || []).filter(a => a !== 'medico_mancante');
-        const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
-        
-        const updatedFattura = { 
-          ...f, 
-          medicoId, 
-          medicoNome, 
-          anomalie: nuoveAnomalie,
-          stato: stato as any 
-        };
+        // Aggiorna la fattura con il nuovo medico
+        const fatturaConMedico = { ...f, medicoId, medicoNome };
+        // Usa la funzione completa per ricalcolare anomalie e totali
+        const updatedFattura = aggiornaFatturaCompleta(fatturaConMedico, fatturaConMedico.voci);
         
         if (onUpdateFattura) {
           onUpdateFattura(f.id, updatedFattura);
@@ -376,12 +363,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   const handleAssegnaMedicoSingolo = (fatturaId: number, medicoId: number, medicoNome: string) => {
     setFatture(fatture.map(f => {
       if (f.id === fatturaId) {
-        // Ricalcola anomalie con il nuovo medico
-        const updatedFattura = ricalcolaAnomalieFattura({ 
-          ...f, 
-          medicoId, 
-          medicoNome 
-        });
+        // Aggiorna la fattura con il nuovo medico e ricalcola tutto per consistenza
+        const fatturaConMedico = { ...f, medicoId, medicoNome };
+        const updatedFattura = aggiornaFatturaCompleta(fatturaConMedico, fatturaConMedico.voci);
         
         if (onUpdateFattura) {
           onUpdateFattura(fatturaId, updatedFattura);
@@ -400,18 +384,14 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         // Aggiorna l'importo a 0 e rimuovi l'anomalia
         const voci = f.voci.map(v => {
           if (v.id === voceId) {
-            return { ...rimuoviAnomalieVoce(v, 'prodotto_con_prezzo'), importoNetto: 0, importoLordo: 0 };
+            const voceSenzaAnomalie = rimuoviAnomalieVoce(v, 'prodotto_con_prezzo');
+            return { ...voceSenzaAnomalie, importoNetto: 0, importoLordo: 0 };
           }
           return v;
         });
         
-        // Ricalcola anomalie e stato
-        const fatturaAggiornata = ricalcolaAnomalieFattura({ ...f, voci });
-        
-        // Ricalcola totali
-        const totaleNetto = calculateTotaleImponibile(voci.map(v => ({ imponibile: v.importoNetto })));
-        
-        return { ...fatturaAggiornata, imponibile: totaleNetto, totale: totaleNetto * 1.22 };
+        // Usa la funzione completa che gestisce anomalie e totali
+        return aggiornaFatturaCompleta(f, voci);
       }
       return f;
     }));
@@ -423,27 +403,8 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         // Rimuovi la voce
         const vociRimanenti = f.voci.filter(v => v.id !== voceId);
         
-        // Ricalcola le anomalie per tutte le voci rimanenti
-        const vociConAnomalieAggiornate = vociRimanenti.map(v => {
-          const anomalieVoce = verificaAnomalieVoce(v, vociRimanenti);
-          return { ...v, anomalie: anomalieVoce };
-        });
-        
-        // Calcola totali
-        const totaleNetto = calculateTotaleImponibile(vociConAnomalieAggiornate.map(v => ({ imponibile: v.importoNetto })));
-        
-        // Calcola anomalie a livello fattura
-        const anomalie = getAnomalieFattura({ ...f, voci: vociConAnomalieAggiornate });
-        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
-        
-        return { 
-          ...f, 
-          voci: vociConAnomalieAggiornate, 
-          imponibile: totaleNetto,
-          totale: totaleNetto * 1.22,
-          anomalie,
-          stato: stato as any 
-        };
+        // Usa la funzione completa che gestisce anomalie e totali
+        return aggiornaFatturaCompleta(f, vociRimanenti);
       }
       return f;
     }));
@@ -467,13 +428,12 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           // Aggiorna solo l'associazione mantenendo il prezzo
           const vociAggiornate = f.voci.map(v => {
             if (v.id === voceId) {
+              const voceSenzaAnomalie = rimuoviAnomalieVoce(v, ['prodotto_orfano']);
               return {
-                ...v,
+                ...voceSenzaAnomalie,
                 prestazionePadre: codicePrestazione,
                 importoNetto: prezzoFormattato,
-                importoLordo: prezzoFormattato,
-                // Rimuovi l'anomalia prodotto_orfano
-                ...rimuoviAnomalieVoce(v, ['prodotto_orfano'])
+                importoLordo: prezzoFormattato
               };
             }
             return v;
@@ -481,13 +441,11 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           
           // Ricalcola tutte le anomalie
           const vociConAnomalieRicalcolate = vociAggiornate.map(v => {
-            const anomalieVoce = AnomalieCalculator.verificaAnomalieVoce(
-              v, vociAggiornate, prestazioniMap, prodottiMap
-            );
+            const anomalieVoce = verificaAnomalieVoce(v, vociAggiornate);
             return { ...v, anomalie: anomalieVoce };
           });
           
-          const anomalieFattura = AnomalieCalculator.getAnomalieFattura({
+          const anomalieFattura = getAnomalieFattura({
             ...f,
             voci: vociConAnomalieRicalcolate
           });
@@ -517,13 +475,12 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           if (v.id === voceId) {
             // Se il prodotto ha già un prezzo diverso da zero, mantienilo
             const mantienIlPrezzo = v.importoNetto > 0;
+            const voceSenzaAnomalie = rimuoviAnomalieVoce(v, mantienIlPrezzo ? ['prodotto_orfano'] : ['prodotto_orfano', 'prodotto_con_prezzo']);
             return {
-              ...v,
+              ...voceSenzaAnomalie,
               prestazionePadre: codicePrestazione,
               importoNetto: mantienIlPrezzo ? parseFloat(v.importoNetto.toFixed(2)) : 0,
-              importoLordo: mantienIlPrezzo ? parseFloat(v.importoLordo.toFixed(2)) : 0,
-              // Rimuovi le anomalie prodotto_orfano e prodotto_con_prezzo se il prezzo è 0
-              ...rimuoviAnomalieVoce(v, mantienIlPrezzo ? ['prodotto_orfano'] : ['prodotto_orfano', 'prodotto_con_prezzo'])
+              importoLordo: mantienIlPrezzo ? parseFloat(v.importoLordo.toFixed(2)) : 0
             };
           }
           return v;
@@ -532,27 +489,8 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         // Aggiungi la nuova voce prestazione all'inizio
         const vociComplete = [nuovaVocePrestazione, ...vociAggiornate];
         
-        // Ricalcola tutte le anomalie
-        const vociConAnomalieRicalcolate = vociComplete.map(v => {
-          const anomalieVoce = verificaAnomalieVoce(v, vociComplete);
-          return { ...v, anomalie: anomalieVoce };
-        });
-        
-        // Calcola totali
-        const totaleNetto = calculateTotaleImponibile(vociConAnomalieRicalcolate.map(v => ({ imponibile: v.importoNetto })));
-        
-        // Calcola anomalie a livello fattura
-        const anomalie = getAnomalieFattura({ ...f, voci: vociConAnomalieRicalcolate });
-        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
-        
-        const updatedFattura = {
-          ...f,
-          voci: vociConAnomalieRicalcolate,
-          imponibile: totaleNetto,
-          totale: f.conIva ? totaleNetto * 1.22 : totaleNetto,
-          anomalie,
-          stato: stato as any
-        };
+        // Usa la funzione completa che gestisce anomalie e totali
+        const updatedFattura = aggiornaFatturaCompleta(f, vociComplete);
         
         if (onUpdateFattura) {
           onUpdateFattura(fatturaId, updatedFattura);
@@ -580,10 +518,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             // Aggiorna la voce prodotto per associarla alla prestazione
             return {
               ...v,
-              prestazionePadre: codicePrestazione,
-              // Rimuovi l'anomalia prodotto_orfano
-              ...rimuoviAnomalieVoce(v, 'prodotto_orfano')
+              prestazionePadre: codicePrestazione
             };
+            // L'anomalia verrà rimossa nel ricalcolo successivo
           }
           return v;
         });
@@ -725,13 +662,12 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         const voci = f.voci.map(v => {
           if (v.codice === prestazione && v.anomalie?.includes('prestazione_senza_macchinario')) {
             // Aggiorna la voce esistente
+            const voceSenzaAnomalie = rimuoviAnomalieVoce(v, 'prestazione_senza_macchinario');
             return {
-              ...v,
+              ...voceSenzaAnomalie,
               codice: `${prestazione}${macchinarioSelezionato}`,
               descrizione: `${prestazioniMap[prestazione]?.descrizione} - ${macchinario.nome}`,
-              tipo: 'macchinario' as const,
-              // Mantieni l'importo esistente della prestazione
-              ...rimuoviAnomalieVoce(v, 'prestazione_senza_macchinario')
+              tipo: 'macchinario' as const
             } as VoceFattura;
           }
           return v;
@@ -761,13 +697,14 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         const voci = f.voci.map(v => {
           if (v.id === voceId) {
             // Rimuovi l'anomalia unita_incompatibile
-            return { ...rimuoviAnomalieVoce(v, 'unita_incompatibile'), unita: unitaCorretta };
+            const voceSenzaAnomalie = rimuoviAnomalieVoce(v, 'unita_incompatibile');
+            return { ...voceSenzaAnomalie, unita: unitaCorretta };
           }
           return v;
         });
         
-        // Ricalcola tutte le anomalie
-        const updatedFattura = ricalcolaAnomalieFattura({ ...f, voci });
+        // Usa la funzione completa che gestisce anomalie e totali
+        const updatedFattura = aggiornaFatturaCompleta(f, voci);
         
         if (onUpdateFattura) {
           onUpdateFattura(fatturaId, updatedFattura);
@@ -788,13 +725,14 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         const voci = f.voci.map(v => {
           if (v.id === voceId) {
             // Aggiorna la quantità e rimuovi sempre l'anomalia quantita_anomala
-            return { ...rimuoviAnomalieVoce(v, 'quantita_anomala'), quantita: nuovaQuantita };
+            const voceSenzaAnomalie = rimuoviAnomalieVoce(v, 'quantita_anomala');
+            return { ...voceSenzaAnomalie, quantita: nuovaQuantita };
           }
           return v;
         });
         
-        // Ricalcola tutte le anomalie basandosi sulle voci aggiornate
-        const updatedFattura = ricalcolaAnomalieFattura({ ...f, voci });
+        // Usa la funzione completa che gestisce anomalie e totali
+        const updatedFattura = aggiornaFatturaCompleta(f, voci);
         
         if (onUpdateFattura) {
           onUpdateFattura(fatturaId, updatedFattura);
@@ -1548,8 +1486,8 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                                 </button>
                               )}
                               {anomalieVoce.includes('unita_incompatibile') && (() => {
-                                const unitaCorretta = anomalieHelper.getUnitaCorretta(voce);
-                                const isCorregibile = anomalieHelper.isUnitaCorregibile(voce);
+                                const unitaCorretta = getUnitaCorretta(voce);
+                                const isCorregibile = isUnitaCorregibile(voce);
                                 
                                 return (
                                   <button
@@ -1710,7 +1648,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       ? fattura.anomalie 
       : getAnomalieFattura(fattura);
     const hasAnomalie = anomalie.length > 0;
-    const isExpanded = expandedFatture.includes(fattura.id);
+    const isExpanded = isFatturaExpanded(fattura.id);
     const canImport = canImportFattura(fattura);
     
     // Debug: verifica coerenza stato/anomalie
@@ -3072,7 +3010,8 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             {/* Anteprima dati */}
             {fileData.length > 0 && (
               <div className="mb-4">
-                <h4 className="text-sm font-medium text-gray-700 mb-2">
+                <h4 className
+                ="text-sm font-medium text-gray-700 mb-2">
                   Anteprima dati ({fileData.length} righe totali)
                 </h4>
                 <div className="overflow-x-auto border border-gray-200 rounded-lg">
