@@ -1,16 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-
-interface FatturaConVoci {
-  id: number;
-  stato?: string;
-  medicoId?: number;
-  medicoNome?: string;
-  serie?: string;
-  data?: string;
-  dataEmissione?: string;
-  anomalie?: string[];
-  voci?: any[];
-}
+import type { FatturaConVoci } from '../services/anomalieCalculator';
 
 interface UseFattureFilterReturn {
   // Stati filtri
@@ -82,7 +71,7 @@ export function useFattureFilter(
       
       // Filtro medico
       if (filtroMedico !== 'tutti') {
-        if (filtroMedico === 'non_assegnato' && f.medicoId) return false;
+        if (filtroMedico === 'non_assegnato' && f.medicoId !== null && f.medicoId !== undefined) return false;
         if (filtroMedico !== 'non_assegnato' && String(f.medicoId) !== filtroMedico) return false;
       }
       

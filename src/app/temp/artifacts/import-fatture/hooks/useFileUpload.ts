@@ -9,8 +9,6 @@ interface UseFileUploadReturn {
   fileColumns: string[];
   fieldMapping: FieldMapping;
   dataFiltro: string;
-  showImportDialog: boolean;
-  showMappingModal: boolean;
   
   // Azioni
   handleFileUpload: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
@@ -20,8 +18,6 @@ interface UseFileUploadReturn {
   // Setters
   setFieldMapping: (mapping: FieldMapping) => void;
   setDataFiltro: (data: string) => void;
-  setShowImportDialog: (show: boolean) => void;
-  setShowMappingModal: (show: boolean) => void;
   
   // Ref
   fileInputRef: React.RefObject<HTMLInputElement | null>;
@@ -40,8 +36,6 @@ export function useFileUpload(
   const [fileColumns, setFileColumns] = useState<string[]>([]);
   const [fieldMapping, setFieldMapping] = useState<FieldMapping>({});
   const [dataFiltro, setDataFiltro] = useState('');
-  const [showImportDialog, setShowImportDialog] = useState(false);
-  const [showMappingModal, setShowMappingModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -68,8 +62,6 @@ export function useFileUpload(
       
       setFileColumns(parsedData.validHeaders);
       setFileData(parsedData.dataRows);
-      setShowImportDialog(false);
-      setShowMappingModal(true);
       
       // Inizializza mapping automatico
       const autoMapping = ExcelParser.createAutoMapping(parsedData.validHeaders);
@@ -109,7 +101,6 @@ export function useFileUpload(
   };
 
   const resetFileUpload = () => {
-    setShowMappingModal(false);
     setUploadedFile(null);
     setFileData([]);
     setFileColumns([]);
@@ -127,8 +118,6 @@ export function useFileUpload(
     fileColumns,
     fieldMapping,
     dataFiltro,
-    showImportDialog,
-    showMappingModal,
     
     // Azioni
     handleFileUpload,
@@ -138,8 +127,6 @@ export function useFileUpload(
     // Setters
     setFieldMapping,
     setDataFiltro,
-    setShowImportDialog,
-    setShowMappingModal,
     
     // Ref
     fileInputRef

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   RefreshCw,
   Check,
@@ -45,8 +45,6 @@ import {
 
 // Import dei services
 import {
-  ExcelParser,
-  FattureProcessor,
   type FatturaConVoci,
   type FieldMapping
 } from './import-fatture/services';
@@ -54,6 +52,11 @@ import {
 // Import degli hooks
 import { useAnomalie } from './import-fatture/hooks/useAnomalie';
 import { useExpanded } from './import-fatture/hooks/useExpanded';
+import { useFattureFilter } from './import-fatture/hooks/useFattureFilter';
+import { useFileUpload } from './import-fatture/hooks/useFileUpload';
+import { useImportSummary } from './import-fatture/hooks/useImportSummary';
+import { useModalStates } from './import-fatture/hooks/useModalStates';
+import { usePagination } from './import-fatture/hooks/usePagination';
 
 // Le interfacce sono ora importate dai services
 
@@ -114,7 +117,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   } = anomalieHelper;
 
   // Usa l'hook useExpanded per gestire lo stato delle fatture espanse
-  const { expandedFatture, isExpanded: isFatturaExpanded, toggleExpanded } = useExpanded();
+  const { isExpanded: isFatturaExpanded, toggleExpanded } = useExpanded();
 
 
   // Usa le fatture dai props - inizializza con anomalie calcolate una sola volta
@@ -123,36 +126,73 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     return fattureProps.map(fattura => ricalcolaAnomalieFattura(fattura));
   });
 
+  // Usa l'hook useFattureFilter per gestire i filtri
+  const {
+    filtroStato,
+    filtroDataDa,
+    filtroDataA,
+    filtroAnomalia,
+    filtroMedico,
+    filtroSerie,
+    fattureFiltered,
+    filtriAttivi,
+    setFiltroStato,
+    setFiltroDataDa,
+    setFiltroDataA,
+    setFiltroAnomalia,
+    setFiltroMedico,
+    setFiltroSerie,
+    resetFiltri
+  } = useFattureFilter(fatture, getAnomalieFattura);
+
   const [selectedFatture, setSelectedFatture] = useState<number[]>([]);
-  const [filtroStato, setFiltroStato] = useState('tutti');
-  const [filtroDataDa, setFiltroDataDa] = useState('');
-  const [filtroDataA, setFiltroDataA] = useState('');
-  const [filtroAnomalia, setFiltroAnomalia] = useState('tutte');
-  const [filtroMedico, setFiltroMedico] = useState('tutti');
-  const [filtroSerie, setFiltroSerie] = useState('tutte');
   const [isImporting, setIsImporting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [showAssignMedico, setShowAssignMedico] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
   const [vistaRaggruppata, setVistaRaggruppata] = useState(false);
   
-  // Stati per import file
-  const [showImportDialog, setShowImportDialog] = useState(false);
-  const [showMappingModal, setShowMappingModal] = useState(false);
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [fileData, setFileData] = useState<any[]>([]);
-  const [fileColumns, setFileColumns] = useState<string[]>([]);
-  const [fieldMapping, setFieldMapping] = useState<FieldMapping>({});
-  const [dataFiltro, setDataFiltro] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [showImportSummary, setShowImportSummary] = useState(false);
-  const [importSummary, setImportSummary] = useState<{ count: number; nuove: number; aggiornate: number } | null>(null);
-  const [showSyncSummary, setShowSyncSummary] = useState(false);
-  const [syncSummary, setSyncSummary] = useState<{ nuove: number; aggiornate: number; totali: number } | null>(null);
-  const [showAddProdottiModal, setShowAddProdottiModal] = useState<{ fatturaId: number; prestazione: string } | null>(null);
-  const [showAddMacchinarioModal, setShowAddMacchinarioModal] = useState<{ fatturaId: number; prestazione: string } | null>(null);
-  const [showCorreggiCodiceModal, setShowCorreggiCodiceModal] = useState<{ fatturaId: number; voceId: number; codiceAttuale: string } | null>(null);
+  // Hook per la gestione degli stati dei modal
+  const modalStates = useModalStates();
+  
+  // Usa l'hook useFileUpload per gestire l'importazione file
+  const {
+    uploadedFile,
+    fileData,
+    fileColumns,
+    fieldMapping,
+    dataFiltro,
+    handleFileUpload,
+    processImportedData: processImportedDataHook,
+    resetFileUpload,
+    setFieldMapping,
+    setDataFiltro,
+    fileInputRef
+  } = useFileUpload({ prestazioniMap, prodottiMap });
+  
+  // Usa l'hook useImportSummary per gestire i riepiloghi
+  const {
+    importSummary,
+    syncSummary,
+    createImportSummary,
+    createSyncSummary
+  } = useImportSummary();
+  
+  
+  // Gestisci la conferma del mapping
+  const handleMappingConfirm = () => {
+    processImportedDataHook((nuoveFatture) => {
+      // Aggiungi le nuove fatture con anomalie calcolate
+      const nuoveFattureConAnomalie = nuoveFatture.map(f => ricalcolaAnomalieFattura(f));
+      setFatture([...fatture, ...nuoveFattureConAnomalie]);
+    });
+    modalStates.setShowMappingModal(false);
+  };
+  
+  // Gestisci l'upload del file
+  const handleFileUploadWrapper = (event: React.ChangeEvent<HTMLInputElement>) => {
+    handleFileUpload(event);
+    modalStates.setShowImportDialog(false);
+    modalStates.setShowMappingModal(true);
+  };
   const [quantitaTemp, setQuantitaTemp] = useState<{ [key: string]: number }>({});
   const [prezzoTempProdottoOrfano, setPrezzoTempProdottoOrfano] = useState<{ [key: string]: number }>({});
   const [filtroRiepilogoMedico, setFiltroRiepilogoMedico] = useState('tutti');
@@ -161,148 +201,8 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   // Mock stati
   const lastSync = '15 minuti fa';
 
-  // Funzione per processare il file Excel
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    
-    // Verifica estensione file
-    if (!ExcelParser.validateFileExtension(file.name)) {
-      alert('Per favore seleziona un file Excel (.xls o .xlsx)');
-      if (event.target) event.target.value = '';
-      return;
-    }
-    
-    setUploadedFile(file);
-    
-    try {
-      // Usa il servizio ExcelParser per leggere il file
-      const parsedData = await ExcelParser.parseFile(file);
-      
-      console.log(`Headers trovati alla riga ${parsedData.headerRowIndex + 1}:`, parsedData.headers);
-      console.log('Headers validi:', parsedData.validHeaders);
-      console.log('Numero righe dati trovate:', parsedData.dataRows.length);
-      console.log('Prima riga dati:', parsedData.dataRows[0]);
-      
-      setFileColumns(parsedData.validHeaders);
-      setFileData(parsedData.dataRows);
-      setShowImportDialog(false);
-      setShowMappingModal(true);
-      
-      // Inizializza mapping automatico
-      const autoMapping = ExcelParser.createAutoMapping(parsedData.validHeaders);
-      setFieldMapping(autoMapping);
-      
-    } catch (error: any) {
-      console.error('Errore nella lettura del file:', error);
-      alert(error.message || 'Errore nella lettura del file. Assicurati che sia un file Excel valido.');
-      if (event.target) event.target.value = '';
-    }
-  };
-  // Rimossa: ora usa ExcelParser.createAutoMapping
   
-  // Processa i dati importati
-  const processImportedData = () => {
-    try {
-      // Usa il servizio FattureProcessor
-      const nuoveFatture = FattureProcessor.processImportedData(
-        fileData,
-        fieldMapping,
-        {
-          dataFiltro,
-          prestazioniMap,
-          prodottiMap
-        }
-      );
-      
-      // Aggiungi le nuove fatture
-      setFatture([...fatture, ...nuoveFatture]);
-      
-      // Chiudi modal e resetta
-      setShowMappingModal(false);
-      setUploadedFile(null);
-      setFileData([]);
-      setFileColumns([]);
-      setFieldMapping({});
-      setDataFiltro('');
-      
-      alert(`Importate ${nuoveFatture.length} fatture. Eventuali anomalie sono state rilevate.`);
-      
-    } catch (error: any) {
-      alert(error.message || 'Errore nel processamento dei dati');
-    }
-  };
   
-  // Reset della pagina corrente quando cambiano i filtri o la vista
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [filtroStato, filtroAnomalia, filtroMedico, filtroSerie, filtroDataDa, filtroDataA, vistaRaggruppata]);
-  
-  // Conteggio filtri attivi
-  const filtriAttivi = useMemo(() => {
-    let count = 0;
-    if (filtroStato !== 'tutti') count++;
-    if (filtroAnomalia !== 'tutte') count++;
-    if (filtroMedico !== 'tutti') count++;
-    if (filtroSerie !== 'tutte') count++;
-    if (filtroDataDa || filtroDataA) count++;
-    return count;
-  }, [filtroStato, filtroAnomalia, filtroMedico, filtroSerie, filtroDataDa, filtroDataA]);
-  
-  // Reset filtri
-  const resetFiltri = () => {
-    setFiltroStato('tutti');
-    setFiltroAnomalia('tutte');
-    setFiltroMedico('tutti');
-    setFiltroSerie('tutte');
-    setFiltroDataDa('');
-    setFiltroDataA('');
-  };
-  
-  // Filtri applicati
-  const fattureFiltered = useMemo(() => {
-    return fatture.filter(f => {
-      // Filtro stato
-      if (filtroStato !== 'tutti' && f.stato !== filtroStato) return false;
-      
-      // Filtro anomalia
-      if (filtroAnomalia !== 'tutte') {
-        const anomalieFattura = getAnomalieFattura(f);
-        if (filtroAnomalia === 'senza_anomalie' && anomalieFattura.length > 0) return false;
-        if (filtroAnomalia !== 'senza_anomalie' && !anomalieFattura.includes(filtroAnomalia)) return false;
-      }
-      
-      // Filtro medico
-      if (filtroMedico !== 'tutti') {
-        if (filtroMedico === 'non_assegnato' && f.medicoId) return false;
-        if (filtroMedico !== 'non_assegnato' && String(f.medicoId) !== filtroMedico) return false;
-      }
-      
-      // Filtro serie
-      if (filtroSerie !== 'tutte' && f.serie !== filtroSerie) return false;
-      
-      // Filtro date
-      if (filtroDataDa || filtroDataA) {
-        const dataString = f.data || f.dataEmissione;
-        if (!dataString) return true;
-        
-        const dataFattura = new Date(dataString);
-        
-        if (filtroDataDa) {
-          const dataDa = new Date(filtroDataDa);
-          if (dataFattura < dataDa) return false;
-        }
-        
-        if (filtroDataA) {
-          const dataA = new Date(filtroDataA);
-          dataA.setHours(23, 59, 59, 999);
-          if (dataFattura > dataA) return false;
-        }
-      }
-      
-      return true;
-    });
-  }, [fatture, filtroStato, filtroDataDa, filtroDataA, filtroAnomalia, filtroMedico, filtroSerie, getAnomalieFattura]);
 
 
 
@@ -356,7 +256,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     }));
     
     setSelectedFatture([]);
-    setShowAssignMedico(false);
+    modalStates.setShowAssignMedico(false);
   };
 
   // Assegna medico singolo (per anomalia)
@@ -553,11 +453,11 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   };
 
   const handleAggiungiProdottiMancanti = (fatturaId: number, prestazione: string) => {
-    setShowAddProdottiModal({ fatturaId, prestazione });
+    modalStates.setShowAddProdottiModal({ fatturaId, prestazione });
   };
 
   const handleAggiungiMacchinarioMancante = (fatturaId: number, prestazione: string) => {
-    setShowAddMacchinarioModal({ fatturaId, prestazione });
+    modalStates.setShowAddMacchinarioModal({ fatturaId, prestazione });
   };
 
   const handleConfermaPrestazioneMacchinarioCompleta = (fatturaId: number, prestazione: string) => {
@@ -609,9 +509,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   };
 
   const confermaAggiungiProdotti = (prodottiSelezionati: { codice: string; quantita: number }[]) => {
-    if (!showAddProdottiModal) return;
+    if (!modalStates.showAddProdottiModal) return;
 
-    const { fatturaId, prestazione } = showAddProdottiModal;
+    const { fatturaId, prestazione } = modalStates.showAddProdottiModal;
 
     setFatture(fatture.map(f => {
       if (f.id === fatturaId && f.voci) {
@@ -644,13 +544,13 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       return f;
     }));
 
-    setShowAddProdottiModal(null);
+    modalStates.setShowAddProdottiModal(null);
   };
 
   const confermaAggiungiMacchinario = (macchinarioSelezionato: string) => {
-    if (!showAddMacchinarioModal) return;
+    if (!modalStates.showAddMacchinarioModal) return;
     
-    const { fatturaId, prestazione } = showAddMacchinarioModal;
+    const { fatturaId, prestazione } = modalStates.showAddMacchinarioModal;
     
     setFatture(fatture.map(f => {
       if (f.id === fatturaId && f.voci) {
@@ -687,7 +587,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       return f;
     }));
     
-    setShowAddMacchinarioModal(null);
+    modalStates.setShowAddMacchinarioModal(null);
   };
 
   // Handler per correggere unità di misura
@@ -899,7 +799,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       }
       return f;
     }));
-    setShowCorreggiCodiceModal(null);
+    modalStates.setShowCorreggiCodiceModal(null);
   };
 
 
@@ -913,12 +813,8 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         onSync();
       }
       
-      setSyncSummary({
-        nuove: 15,
-        aggiornate: 3,
-        totali: 18
-      });
-      setShowSyncSummary(true);
+      createSyncSummary(15, 3, 18);
+      modalStates.setShowSyncSummary(true);
       setIsSyncing(false);
     }, 2000);
   };
@@ -965,14 +861,14 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           : f
       ));
       
-      setImportSummary({ count, nuove, aggiornate });
-      setShowImportSummary(true);
+      createImportSummary(count, nuove, aggiornate);
+      modalStates.setShowImportSummary(true);
       setSelectedFatture([]);
       setIsImporting(false);
     }, 1500);
   };
 
-  // Renderizza anomalie
+  // Renderizza anomalie con altezza fissa e scroll se necessario
   const renderAnomalie = (anomalie: string[], fatturaId?: number) => {
     const anomalieMap: Record<string, { label: string; color: string; icon: any }> = {
       'medico_mancante': { label: 'Medico mancante', color: 'text-red-600', icon: AlertCircle },
@@ -986,69 +882,91 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       'quantita_anomala': { label: 'Quantità anomala', color: 'text-pink-600', icon: AlertCircle }
     };
 
+    // Container con altezza fissa e scroll se ci sono troppe anomalie
     return (
-      <div className="flex flex-wrap gap-1">
-        {[...new Set(anomalie)].map((anomalia, idx) => {
-          const config = anomalieMap[anomalia];
-          if (!config) return null;
-          
-          const Icon = config.icon;
-          return (
-            <div key={idx} className="flex items-center gap-2">
-              <span 
-                className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-gray-100 ${config.color}`}
-              >
-                <Icon className="w-3 h-3" />
-                {config.label}
-              </span>
-              {anomalia === 'medico_mancante' && fatturaId && (
-                <div className="flex items-center gap-2">
-                  <select
-                    className="text-xs border border-gray-300 rounded px-2 py-1"
-                    id={`medico-select-${fatturaId}`}
-                    defaultValue=""
-                  >
-                    <option value="">Seleziona medico...</option>
-                    {medici.map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.nome} {m.cognome}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() => {
-                      const selectElement = document.getElementById(`medico-select-${fatturaId}`) as HTMLSelectElement;
-                      const medicoId = Math.round(excelToNumber(selectElement?.value)) || 0;
-                      if (medicoId) {
-                        const medico = medici.find(m => m.id === medicoId);
-                        if (medico && confirm(`Confermi l'assegnazione di ${medico.nome} ${medico.cognome} a questa fattura?`)) {
-                          handleAssegnaMedicoSingolo(fatturaId, medicoId, `${medico.nome} ${medico.cognome}`);
+      <div 
+        className="h-10 overflow-y-auto overflow-x-hidden border border-gray-200 rounded-md bg-gray-50 p-1"
+        style={{ 
+          scrollbarWidth: 'thin',
+          scrollbarColor: '#9ca3af #f3f4f6'
+        }}
+      >
+        <div className="flex flex-wrap gap-1">
+          {[...new Set(anomalie)].map((anomalia, idx) => {
+            const config = anomalieMap[anomalia];
+            if (!config) return null;
+            
+            const Icon = config.icon;
+            return (
+              <div key={idx} className="flex items-center gap-2">
+                <span 
+                  className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-gray-100 ${config.color}`}
+                >
+                  <Icon className="w-3 h-3" />
+                  {config.label}
+                </span>
+                {anomalia === 'medico_mancante' && fatturaId && (
+                  <div className="flex items-center gap-2">
+                    <select
+                      className="text-xs border border-gray-300 rounded px-2 py-1"
+                      id={`medico-select-${fatturaId}`}
+                      defaultValue=""
+                    >
+                      <option value="">Seleziona medico...</option>
+                      {medici.map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.nome} {m.cognome}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => {
+                        const selectElement = document.getElementById(`medico-select-${fatturaId}`) as HTMLSelectElement;
+                        const medicoId = Math.round(excelToNumber(selectElement?.value)) || 0;
+                        if (medicoId) {
+                          const medico = medici.find(m => m.id === medicoId);
+                          if (medico && confirm(`Confermi l'assegnazione di ${medico.nome} ${medico.cognome} a questa fattura?`)) {
+                            handleAssegnaMedicoSingolo(fatturaId, medicoId, `${medico.nome} ${medico.cognome}`);
+                          }
+                        } else {
+                          alert('Seleziona un medico prima di confermare');
                         }
-                      } else {
-                        alert('Seleziona un medico prima di confermare');
-                      }
-                    }}
-                    className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
-                  >
-                    Conferma
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
+                      }}
+                      className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                    >
+                      Conferma
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   };
 
 
-  // Paginazione
-  const paginatedFatture = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return fattureFiltered.slice(startIndex, startIndex + itemsPerPage);
-  }, [fattureFiltered, currentPage, itemsPerPage]);
-
-  const totalPages = Math.ceil(fattureFiltered.length / itemsPerPage);
+  // Hook per la paginazione
+  const {
+    currentPage,
+    itemsPerPage,
+    totalPages,
+    paginatedItems: paginatedFatture,
+    startIndex,
+    itemsShowingFrom,
+    itemsShowingTo,
+    setCurrentPage,
+    nextPage,
+    prevPage,
+    goToPage,
+    getPageNumbers
+  } = usePagination(fattureFiltered, 10);
+  
+  // Reset della pagina quando cambiano i filtri o la vista
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filtroStato, filtroAnomalia, filtroMedico, filtroSerie, filtroDataDa, filtroDataA, vistaRaggruppata]);
 
   // Calcola riepilogo dati
   const riepilogoMensile = useMemo(() => {
@@ -1266,8 +1184,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         return a.localeCompare(b);
       });
       
-      // Calcola quale gruppo di medici mostrare in base alla paginazione
-      const startIndex = (currentPage - 1) * itemsPerPage;
+      // startIndex è già fornito dall'hook usePagination
       let currentIndex = 0;
       const rowsToRender: React.ReactNode[] = [];
       
@@ -1538,7 +1455,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                               )}
                               {anomalieVoce.includes('codice_sconosciuto') && (
                                 <button
-                                  onClick={() => setShowCorreggiCodiceModal({ fatturaId: fattura.id, voceId: voce.id, codiceAttuale: voce.codice })}
+                                  onClick={() => modalStates.setShowCorreggiCodiceModal({ fatturaId: fattura.id, voceId: voce.id, codiceAttuale: voce.codice })}
                                   className="px-2 py-1 text-xs bg-red-700 text-white rounded hover:bg-red-800"
                                 >
                                   Correggi codice
@@ -1756,9 +1673,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     
     // Trova i prodotti già presenti per questa prestazione
     useEffect(() => {
-      if (!showAddProdottiModal) return;
+      if (!modalStates.showAddProdottiModal) return;
       
-      const fattura = fatture.find(f => f.id === showAddProdottiModal.fatturaId);
+      const fattura = fatture.find(f => f.id === modalStates.showAddProdottiModal?.fatturaId);
       if (fattura && fattura.voci) {
         const prodottiEsistenti = fattura.voci
           .filter(v => v.prestazionePadre === prestazione && v.tipo === 'prodotto')
@@ -1769,7 +1686,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           .filter(Boolean);
         setProdottiGiaPresenti(prodottiEsistenti);
       }
-    }, [showAddProdottiModal, fatture, prestazione]);
+    }, [modalStates.showAddProdottiModal, fatture, prestazione]);
 
     const handleToggleProdotto = (codice: string) => {
       const exists = prodottiSelezionati.find(p => p.codice === codice);
@@ -2401,7 +2318,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             <div className="flex items-center gap-2">
               {/* Pulsanti Import/Export sempre visibili */}
               <button
-                onClick={() => setShowImportDialog(true)}
+                onClick={() => modalStates.setShowImportDialog(true)}
                 className="px-3 py-2 text-sm bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2"
                 title="Importa dati da file Excel"
               >
@@ -2497,16 +2414,16 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
               <div className="flex-1 flex justify-between sm:hidden">
                 <button
-                  onClick={() => setCurrentPage(currentPage - 1)}
+                  onClick={prevPage}
                   disabled={currentPage === 1}
                   className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
                 >
                   Precedente
                 </button>
                 <button
-                  onClick={() => setCurrentPage(currentPage + 1)}
+                  onClick={nextPage}
                   disabled={currentPage === totalPages}
-                  className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                  className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Successiva
                 </button>
@@ -2515,10 +2432,10 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                 <div>
                   <p className="text-sm text-gray-700">
                     Mostrati da{' '}
-                    <span className="font-medium">{(currentPage - 1) * itemsPerPage + 1}</span>
+                    <span className="font-medium">{itemsShowingFrom}</span>
                     {' '}a{' '}
                     <span className="font-medium">
-                      {Math.min(currentPage * itemsPerPage, fattureFiltered.length)}
+                      {itemsShowingTo}
                     </span>
                     {' '}di{' '}
                     <span className="font-medium">{fattureFiltered.length}</span>
@@ -2528,59 +2445,20 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                 <div>
                   <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
                     <button
-                      onClick={() => setCurrentPage(currentPage - 1)}
+                      onClick={prevPage}
                       disabled={currentPage === 1}
                       className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
                     >
                       <ChevronLeft className="h-5 w-5" />
                     </button>
-                    {(() => {
-                      const pageNumbers = [];
-                      const maxVisible = 7; // Numero massimo di pulsanti visibili
-                      const ellipsis = '...';
-                      
-                      if (totalPages <= maxVisible) {
-                        // Se le pagine totali sono poche, mostra tutto
-                        for (let i = 1; i <= totalPages; i++) {
-                          pageNumbers.push(i);
-                        }
-                      } else {
-                        // Sempre mostra la prima pagina
-                        pageNumbers.push(1);
-                        
-                        if (currentPage <= 4) {
-                          // Se siamo nelle prime pagine
-                          for (let i = 2; i <= 5; i++) {
-                            pageNumbers.push(i);
-                          }
-                          pageNumbers.push(ellipsis);
-                          pageNumbers.push(totalPages);
-                        } else if (currentPage >= totalPages - 3) {
-                          // Se siamo nelle ultime pagine
-                          pageNumbers.push(ellipsis);
-                          for (let i = totalPages - 4; i < totalPages; i++) {
-                            pageNumbers.push(i);
-                          }
-                          pageNumbers.push(totalPages);
-                        } else {
-                          // Se siamo nel mezzo
-                          pageNumbers.push(ellipsis);
-                          for (let i = currentPage - 1; i <= currentPage + 1; i++) {
-                            pageNumbers.push(i);
-                          }
-                          pageNumbers.push(ellipsis);
-                          pageNumbers.push(totalPages);
-                        }
-                      }
-                      
-                      return pageNumbers.map((number, index) => {
-                        if (number === ellipsis) {
+                    {getPageNumbers().map((number, index) => {
+                        if (number === '...') {
                           return (
                             <span
                               key={`ellipsis-${index}`}
                               className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700"
                             >
-                              {ellipsis}
+                              ...
                             </span>
                           );
                         }
@@ -2588,7 +2466,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                         return (
                           <button
                             key={number}
-                            onClick={() => setCurrentPage(number as number)}
+                            onClick={() => goToPage(number as number)}
                             className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
                               currentPage === number
                                 ? 'z-10 bg-[#03A6A6] border-[#03A6A6] text-white'
@@ -2598,10 +2476,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                             {number}
                           </button>
                         );
-                      });
-                    })()}
+                      })}
                     <button
-                      onClick={() => setCurrentPage(currentPage + 1)}
+                      onClick={nextPage}
                       disabled={currentPage === totalPages}
                       className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
                     >
@@ -2766,7 +2643,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
 
       {/* Modals */}
-      {showAssignMedico && (
+      {modalStates.showAssignMedico && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
@@ -2784,7 +2661,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               ))}
             </div>
             <button
-              onClick={() => setShowAssignMedico(false)}
+              onClick={() => modalStates.setShowAssignMedico(false)}
               className="mt-4 w-full px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
             >
               Annulla
@@ -2793,7 +2670,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         </div>
       )}
 
-      {showImportSummary && importSummary && (
+      {modalStates.showImportSummary && importSummary && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <div className="text-center">
@@ -2810,7 +2687,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                 </p>
               </div>
               <button
-                onClick={() => setShowImportSummary(false)}
+                onClick={() => modalStates.setShowImportSummary(false)}
                 className="mt-6 w-full px-4 py-2 bg-[#03A6A6] text-white rounded-lg hover:bg-[#028a8a]"
               >
                 Chiudi
@@ -2820,7 +2697,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         </div>
       )}
 
-      {showSyncSummary && syncSummary && (
+      {modalStates.showSyncSummary && syncSummary && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <div className="text-center">
@@ -2837,7 +2714,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                 </p>
               </div>
               <button
-                onClick={() => setShowSyncSummary(false)}
+                onClick={() => modalStates.setShowSyncSummary(false)}
                 className="mt-6 w-full px-4 py-2 bg-[#03A6A6] text-white rounded-lg hover:bg-[#028a8a]"
               >
                 Chiudi
@@ -2848,42 +2725,42 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       )}
       
       {/* Modal Aggiungi Prodotti */}
-      {showAddProdottiModal && (
+      {modalStates.showAddProdottiModal && (
         <ModalAggiungiProdotti
-          prestazione={showAddProdottiModal.prestazione}
-          prodottiDisponibili={getProdottiValidiPerPrestazione(showAddProdottiModal.prestazione)}
+          prestazione={modalStates.showAddProdottiModal.prestazione}
+          prodottiDisponibili={getProdottiValidiPerPrestazione(modalStates.showAddProdottiModal.prestazione)}
           onConfirm={confermaAggiungiProdotti}
-          onCancel={() => setShowAddProdottiModal(null)}
+          onCancel={() => modalStates.setShowAddProdottiModal(null)}
         />
       )}
       
       {/* Modal Aggiungi Macchinario */}
-      {showAddMacchinarioModal && (
+      {modalStates.showAddMacchinarioModal && (
         <ModalAggiungiMacchinario
-          prestazione={showAddMacchinarioModal.prestazione}
+          prestazione={modalStates.showAddMacchinarioModal.prestazione}
           onConfirm={confermaAggiungiMacchinario}
-          onCancel={() => setShowAddMacchinarioModal(null)}
+          onCancel={() => modalStates.setShowAddMacchinarioModal(null)}
         />
       )}
       
       {/* Modal Correggi Codice */}
-      {showCorreggiCodiceModal && (() => {
-        const fattura = fatture.find(f => f.id === showCorreggiCodiceModal.fatturaId);
-        const voce = fattura?.voci?.find(v => v.id === showCorreggiCodiceModal.voceId);
+      {modalStates.showCorreggiCodiceModal && (() => {
+        const fattura = fatture.find(f => f.id === modalStates.showCorreggiCodiceModal?.fatturaId);
+        const voce = fattura?.voci?.find(v => v.id === modalStates.showCorreggiCodiceModal?.voceId);
         if (!voce) return null;
         
         return (
           <ModalCorreggiCodice
-            codiceAttuale={showCorreggiCodiceModal.codiceAttuale}
+            codiceAttuale={modalStates.showCorreggiCodiceModal?.codiceAttuale || ''}
             voceCorrente={{ ...voce, anomalie: voce.anomalie || [] }}
-            onConfirm={(nuovoCodice, prezzo, quantita) => handleCorreggiCodice(showCorreggiCodiceModal.fatturaId, showCorreggiCodiceModal.voceId, nuovoCodice, prezzo, quantita)}
-            onCancel={() => setShowCorreggiCodiceModal(null)}
+            onConfirm={(nuovoCodice, prezzo, quantita) => handleCorreggiCodice(modalStates.showCorreggiCodiceModal?.fatturaId || 0, modalStates.showCorreggiCodiceModal?.voceId || 0, nuovoCodice, prezzo, quantita)}
+            onCancel={() => modalStates.setShowCorreggiCodiceModal(null)}
           />
         );
       })()}
       
       {/* Dialog Import File */}
-      {showImportDialog && (
+      {modalStates.showImportDialog && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <div className="flex items-center gap-3 mb-4">
@@ -2913,7 +2790,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               ref={fileInputRef}
               type="file"
               accept=".xls,.xlsx"
-              onChange={handleFileUpload}
+              onChange={handleFileUploadWrapper}
               className="hidden"
             />
             
@@ -2926,7 +2803,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                 Seleziona File
               </button>
               <button
-                onClick={() => setShowImportDialog(false)}
+                onClick={() => modalStates.setShowImportDialog(false)}
                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
               >
                 Annulla
@@ -2937,7 +2814,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       )}
       
       {/* Modal Mappatura Campi */}
-      {showMappingModal && (
+      {modalStates.showMappingModal && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
@@ -2993,7 +2870,8 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                       value={fieldMapping[campo.key as keyof FieldMapping] || ''}
                       onChange={(e) => setFieldMapping({
                         ...fieldMapping,
-                        [campo.key]: e.target.value
+                        [campo.key]:
+                         e.target.value
                       })}
                       className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
                     >
@@ -3044,18 +2922,15 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => {
-                  setShowMappingModal(false);
-                  setUploadedFile(null);
-                  setFileData([]);
-                  setFileColumns([]);
-                  setFieldMapping({});
+                  resetFileUpload();
+                  modalStates.setShowMappingModal(false);
                 }}
                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
               >
                 Annulla
               </button>
               <button
-                onClick={processImportedData}
+                onClick={handleMappingConfirm}
                 disabled={!fieldMapping.numero || !fieldMapping.data}
                 className="px-4 py-2 bg-[#03A6A6] text-white rounded-lg hover:bg-[#028a8a] disabled:opacity-50 disabled:cursor-not-allowed"
               >
