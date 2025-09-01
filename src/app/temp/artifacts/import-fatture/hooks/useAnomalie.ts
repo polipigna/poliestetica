@@ -6,6 +6,8 @@ interface UseAnomalieReturn {
   verificaAnomalieVoce: (voce: VoceFatturaEstesa, voci: VoceFatturaEstesa[]) => string[];
   getAnomalieFattura: (fattura: FatturaConVoci) => string[];
   ricalcolaAnomalieFattura: (fattura: FatturaConVoci) => FatturaConVoci;
+  getUnitaCorretta: (voce: VoceFatturaEstesa) => string | null;
+  isUnitaCorregibile: (voce: VoceFatturaEstesa) => boolean;
 }
 
 export function useAnomalie(
@@ -32,9 +34,25 @@ export function useAnomalie(
     return AnomalieProcessor.ricalcolaAnomalieFattura(f, prestazioniMap, prodottiMap);
   };
 
+  // Funzione per determinare l'unità corretta per una voce
+  const getUnitaCorretta = useMemo(() => {
+    return (voce: VoceFatturaEstesa): string | null => {
+      return AnomalieCalculator.getUnitaCorretta(voce, prestazioniMap, prodottiMap);
+    };
+  }, [prestazioniMap, prodottiMap]);
+
+  // Funzione per verificare se l'unità è correggibile
+  const isUnitaCorregibile = useMemo(() => {
+    return (voce: VoceFatturaEstesa): boolean => {
+      return AnomalieCalculator.isUnitaCorregibile(voce, prestazioniMap, prodottiMap);
+    };
+  }, [prestazioniMap, prodottiMap]);
+
   return {
     verificaAnomalieVoce,
     getAnomalieFattura,
-    ricalcolaAnomalieFattura
+    ricalcolaAnomalieFattura,
+    getUnitaCorretta,
+    isUnitaCorregibile
   };
 }

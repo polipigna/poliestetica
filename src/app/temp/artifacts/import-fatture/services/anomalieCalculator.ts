@@ -135,6 +135,12 @@ export class AnomalieCalculator {
         anomalie.push('prestazione_duplicata');
       }
       
+      // Controllo unità di misura per prestazioni
+      // Le prestazioni devono avere unità "prestazione"
+      if (voce.unita && voce.unita !== 'prestazione') {
+        anomalie.push('unita_incompatibile');
+      }
+      
       return anomalie;
     }
     
@@ -151,6 +157,12 @@ export class AnomalieCalculator {
       const duplicati = voci.filter(v => v.codice === voce.codice && v.id !== voce.id);
       if (duplicati.length > 0) {
         anomalie.push('prestazione_duplicata');
+      }
+      
+      // Controllo unità di misura per prestazioni
+      // Le prestazioni devono avere unità "prestazione"
+      if (voce.unita && voce.unita !== 'prestazione') {
+        anomalie.push('unita_incompatibile');
       }
     }
     
@@ -304,6 +316,45 @@ export class AnomalieCalculator {
     return this.filtraAnomalieBySeverity(anomalie, 'error').length > 0;
   }
   
+  /**
+   * Determina l'unità di misura corretta per una voce
+   */
+  static getUnitaCorretta(
+    voce: VoceFatturaEstesa,
+    prestazioniMap: Record<string, Prestazione>,
+    prodottiMap: Record<string, Prodotto>
+  ): string | null {
+    // Controlla se è una combinazione di tipo prestazione o prestazione+macchinario
+    const combinazione = combinazioni.find(c => c.codice === voce.codice);
+    if (combinazione && (combinazione.tipo === 'prestazione' || combinazione.tipo === 'prestazione+macchinario')) {
+      return 'prestazione';
+    }
+    
+    // Controlla se è nel prestazioniMap (prestazione pura)
+    if (prestazioniMap[voce.codice]) {
+      return 'prestazione';
+    }
+    
+    // Controlla se è un prodotto
+    const parsed = parseCodiceFattura(voce.codice);
+    if (parsed.accessorio && prodottiMap[parsed.accessorio]) {
+      return prodottiMap[parsed.accessorio].unita;
+    }
+    
+    return null;
+  }
+
+  /**
+   * Verifica se l'unità di misura di una voce è correggibile
+   */
+  static isUnitaCorregibile(
+    voce: VoceFatturaEstesa,
+    prestazioniMap: Record<string, Prestazione>,
+    prodottiMap: Record<string, Prodotto>
+  ): boolean {
+    return this.getUnitaCorretta(voce, prestazioniMap, prodottiMap) !== null;
+  }
+
   /**
    * Calcola statistiche anomalie per un set di fatture
    */

@@ -47,6 +47,7 @@ import {
 import {
   ExcelParser,
   FattureProcessor,
+  AnomalieCalculator,
   type FatturaConVoci,
   type FieldMapping
 } from './import-fatture/services';
@@ -98,10 +99,11 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   }, [prodotti]);
 
   // Usa l'hook useAnomalie per gestire le anomalie
-  const { verificaAnomalieVoce, getAnomalieFattura, ricalcolaAnomalieFattura } = useAnomalie(
+  const anomalieHelper = useAnomalie(
     prestazioniMap,
     prodottiMap
   );
+  const { verificaAnomalieVoce, getAnomalieFattura, ricalcolaAnomalieFattura } = anomalieHelper;
 
   // Helper per rimuovere anomalie specifiche da una voce
   const rimuoviAnomalieVoce = (voce: any, anomalieDaRimuovere: string | string[]) => {
@@ -1545,19 +1547,24 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                                   Cancella
                                 </button>
                               )}
-                              {anomalieVoce.includes('unita_incompatibile') && (
-                                <button
-                                  onClick={() => {
-                                    const prodotto = parsed.accessorio ? prodottiMap[parsed.accessorio] : null;
-                                    if (prodotto) {
-                                      handleCorreggiUnita(fattura.id, voce.id, prodotto.unita);
-                                    }
-                                  }}
-                                  className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
-                                >
-                                  Correggi a {parsed.accessorio ? prodottiMap[parsed.accessorio]?.unita : 'unità'}
-                                </button>
-                              )}
+                              {anomalieVoce.includes('unita_incompatibile') && (() => {
+                                const unitaCorretta = anomalieHelper.getUnitaCorretta(voce);
+                                const isCorregibile = anomalieHelper.isUnitaCorregibile(voce);
+                                
+                                return (
+                                  <button
+                                    onClick={() => {
+                                      if (unitaCorretta) {
+                                        handleCorreggiUnita(fattura.id, voce.id, unitaCorretta);
+                                      }
+                                    }}
+                                    disabled={!isCorregibile}
+                                    className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    Correggi a {unitaCorretta || 'unità'}
+                                  </button>
+                                );
+                              })()}
                               {anomalieVoce.includes('quantita_anomala') && (
                                 <div className="flex items-center gap-2 relative z-10">
                                   <span className="text-xs text-gray-600">
