@@ -8,3 +8,4 @@ export * from './anomalieProcessor';
 export * from './fattureProcessor';
 export * from './vociProcessor';
 export * from './statisticheProcessor';
+export * from './prodottiMacchinariService';

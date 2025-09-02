@@ -49,6 +49,7 @@ import {
 // Import degli hooks
 import { useAnomalie } from './import-fatture/hooks/useAnomalie';
 import { useVociManagement } from './import-fatture/hooks/useVociManagement';
+import { useProdottiMacchinari } from './import-fatture/hooks/useProdottiMacchinari';
 import { useExpanded } from './import-fatture/hooks/useExpanded';
 import { useFattureFilter } from './import-fatture/hooks/useFattureFilter';
 import { useFileUpload } from './import-fatture/hooks/useFileUpload';
@@ -108,10 +109,8 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     prodottiMap
   );
   const { 
-    verificaAnomalieVoce, 
     getAnomalieFattura, 
-    ricalcolaAnomalieFattura, 
-    rimuoviAnomalieVoce,
+    ricalcolaAnomalieFattura,
     getUnitaCorretta,
     isUnitaCorregibile,
     aggiornaFatturaCompleta
@@ -119,6 +118,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   // Inizializza useVociManagement per il test incrementale
   const vociManagement = useVociManagement(prestazioniMap, prodottiMap);
+  
+  // Inizializza useProdottiMacchinari per gestire prodotti e macchinari mancanti
+  const prodottiMacchinariManagement = useProdottiMacchinari(prestazioniMap, prodottiMap, macchinari);
   
 
   // Usa l'hook useExpanded per gestire lo stato delle fanontture espanse
@@ -366,37 +368,15 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
     const { fatturaId, prestazione } = modalStates.showAddProdottiModal;
 
-    setFatture(fatture.map(f => {
-      if (f.id === fatturaId && f.voci) {
-        const nuoveVoci = prodottiSelezionati.map(ps => {
-          const prodotto = prodottiMap[ps.codice];
-          return {
-            id: Date.now() + Math.random(),
-            codice: `${prestazione}${ps.codice}`,
-            descrizione: `${prestazioniMap[prestazione]?.descrizione} - ${prodotto?.nome}`,
-            tipo: 'prodotto' as const,
-            prestazionePadre: prestazione,
-            importoNetto: 0,
-            importoLordo: 0,
-            quantita: ps.quantita,
-            unita: prodotto?.unita || '',
-            anomalie: []
-          };
-        });
-
-        const voci = [...f.voci, ...nuoveVoci];
-        const anomalie = getAnomalieFattura({ ...f, voci });
-        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
-        
-        return {
-          ...f,
-          voci,
-          stato: stato as any
-        };
-      }
-      return f;
-    }));
-
+    // Usa il nuovo hook per aggiungere prodotti
+    const nuoveFatture = prodottiMacchinariManagement.handleAggiungiProdotti(
+      fatture,
+      fatturaId,
+      prestazione,
+      prodottiSelezionati
+    );
+    
+    setFatture(nuoveFatture);
     modalStates.setShowAddProdottiModal(null);
   };
 
@@ -405,41 +385,15 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     
     const { fatturaId, prestazione } = modalStates.showAddMacchinarioModal;
     
-    setFatture(fatture.map(f => {
-      if (f.id === fatturaId && f.voci) {
-        // Trova il macchinario selezionato
-        const macchinario = macchinari.find(m => m.codice === macchinarioSelezionato);
-        if (!macchinario) return f;
-        
-        // Aggiorna la voce esistente della prestazione trasformandola in prestazione+macchinario
-        const voci = f.voci.map(v => {
-          if (v.codice === prestazione && v.anomalie?.includes('prestazione_senza_macchinario')) {
-            // Aggiorna la voce esistente
-            const voceSenzaAnomalie = rimuoviAnomalieVoce(v, 'prestazione_senza_macchinario');
-            return {
-              ...voceSenzaAnomalie,
-              codice: `${prestazione}${macchinarioSelezionato}`,
-              descrizione: `${prestazioniMap[prestazione]?.descrizione} - ${macchinario.nome}`,
-              tipo: 'macchinario' as const
-            } as VoceFattura;
-          }
-          return v;
-        });
-        
-        // Ricalcola anomalie
-        const anomalie = getAnomalieFattura({ ...f, voci });
-        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
-        
-        return {
-          ...f,
-          voci,
-          anomalie,
-          stato: stato as any
-        };
-      }
-      return f;
-    }));
+    // Usa il nuovo hook per aggiungere macchinario
+    const nuoveFatture = prodottiMacchinariManagement.handleAggiungiMacchinario(
+      fatture,
+      fatturaId,
+      prestazione,
+      macchinarioSelezionato
+    );
     
+    setFatture(nuoveFatture);
     modalStates.setShowAddMacchinarioModal(null);
   };
 

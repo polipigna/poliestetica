@@ -8,5 +8,6 @@ export { useModalStates } from './useModalStates';
 export { useImportSummary } from './useImportSummary';
 export { useStatistiche } from './useStatistiche';
 export { useVociManagement } from './useVociManagement';
+export { useProdottiMacchinari } from './useProdottiMacchinari';
 export { useExpanded } from './useExpanded';
 export { useVistaRaggruppata } from './useVistaRaggruppata';
