@@ -48,6 +48,7 @@ import {
 
 // Import degli hooks
 import { useAnomalie } from './import-fatture/hooks/useAnomalie';
+import { useVociManagement } from './import-fatture/hooks/useVociManagement';
 import { useExpanded } from './import-fatture/hooks/useExpanded';
 import { useFattureFilter } from './import-fatture/hooks/useFattureFilter';
 import { useFileUpload } from './import-fatture/hooks/useFileUpload';
@@ -116,7 +117,13 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     aggiornaFatturaCompleta
   } = anomalieHelper;
 
-  // Usa l'hook useExpanded per gestire lo stato delle fatture espanse
+  // Inizializza useVociManagement per il test incrementale
+  const vociManagement = useVociManagement(prestazioniMap, prodottiMap);
+  
+  // Flag per testare il nuovo sistema - CAMBIARE PER TESTARE
+  const USE_NEW_VOCI_SYSTEM = true;
+
+  // Usa l'hook useExpanded per gestire lo stato delle fanontture espanse
   const { isExpanded: isFatturaExpanded, toggleExpanded } = useExpanded();
 
 
@@ -282,35 +289,13 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   // Azioni risoluzione anomalie
   const handleImpostaPrezzoZero = (fatturaId: number, voceId: number) => {
-    setFatture(fatture.map(f => {
-      if (f.id === fatturaId && f.voci) {
-        // Aggiorna l'importo a 0 e rimuovi l'anomalia
-        const voci = f.voci.map(v => {
-          if (v.id === voceId) {
-            const voceSenzaAnomalie = rimuoviAnomalieVoce(v, 'prodotto_con_prezzo');
-            return { ...voceSenzaAnomalie, importoNetto: 0, importoLordo: 0 };
-          }
-          return v;
-        });
-        
-        // Usa la funzione completa che gestisce anomalie e totali
-        return aggiornaFatturaCompleta(f, voci);
-      }
-      return f;
-    }));
+    const nuoveFatture = vociManagement.handleImpostaPrezzoZero(fatture, fatturaId, voceId);
+    setFatture(nuoveFatture);
   };
 
   const handleEliminaVoce = (fatturaId: number, voceId: number) => {
-    setFatture(fatture.map(f => {
-      if (f.id === fatturaId && f.voci) {
-        // Rimuovi la voce
-        const vociRimanenti = f.voci.filter(v => v.id !== voceId);
-        
-        // Usa la funzione completa che gestisce anomalie e totali
-        return aggiornaFatturaCompleta(f, vociRimanenti);
-      }
-      return f;
-    }));
+    const nuoveFatture = vociManagement.handleEliminaVoce(fatture, fatturaId, voceId);
+    setFatture(nuoveFatture);
   };
 
   const handleAggiornaPrezzoEAssociaPrestazione = (fatturaId: number, voceId: number, nuovoPrezzo: number, codicePrestazione: string) => {
@@ -413,46 +398,15 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   };
 
   const handleAssociaPrestazione = (fatturaId: number, voceId: number, codicePrestazione: string) => {
-    setFatture(fatture.map(f => {
-      if (f.id === fatturaId && f.voci) {
-        // Prima aggiorna la voce e rimuovi l'anomalia
-        const voci = f.voci.map(v => {
-          if (v.id === voceId) {
-            // Aggiorna la voce prodotto per associarla alla prestazione
-            return {
-              ...v,
-              prestazionePadre: codicePrestazione
-            };
-            // L'anomalia verrà rimossa nel ricalcolo successivo
-          }
-          return v;
-        });
-        
-        // Poi ricalcola tutte le anomalie per essere sicuri
-        const vociConAnomalieRicalcolate = voci.map(v => {
-          const anomalieVoce = verificaAnomalieVoce(v, voci);
-          return { ...v, anomalie: anomalieVoce };
-        });
-        
-        // Calcola anomalie a livello fattura
-        const anomalie = getAnomalieFattura({ ...f, voci: vociConAnomalieRicalcolate });
-        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
-        
-        const updatedFattura = {
-          ...f,
-          voci: vociConAnomalieRicalcolate,
-          anomalie,
-          stato: stato as any
-        };
-        
-        if (onUpdateFattura) {
-          onUpdateFattura(fatturaId, updatedFattura);
-        }
-        
-        return updatedFattura;
+    const nuoveFatture = vociManagement.handleAssociaPrestazione(fatture, fatturaId, voceId, codicePrestazione);
+    setFatture(nuoveFatture);
+    
+    if (onUpdateFattura) {
+      const fatturaAggiornata = nuoveFatture.find(f => f.id === fatturaId);
+      if (fatturaAggiornata) {
+        onUpdateFattura(fatturaId, fatturaAggiornata);
       }
-      return f;
-    }));
+    }
   };
 
   const handleAggiungiProdottiMancanti = (fatturaId: number, prestazione: string) => {
@@ -463,52 +417,30 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     modalStates.setShowAddMacchinarioModal({ fatturaId, prestazione });
   };
 
+  // Handler per conferma prestazione macchinario completa
   const handleConfermaPrestazioneMacchinarioCompleta = (fatturaId: number, prestazione: string) => {
-    setFatture(fatture.map(f => {
-      if (f.id === fatturaId && f.voci) {
-        const voci = f.voci.map(v => {
-          if (v.codice === prestazione && v.anomalie?.includes('prestazione_senza_macchinario')) {
-            return rimuoviAnomalieVoce(v, 'prestazione_senza_macchinario');
-          }
-          return v;
-        });
-        
-        const anomalie = getAnomalieFattura({ ...f, voci });
-        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
-        
-        return {
-          ...f,
-          voci,
-          anomalie,
-          stato: stato as any
-        };
+    const nuoveFatture = vociManagement.handleConfermaPrestazioneMacchinarioCompleta(fatture, fatturaId, prestazione);
+    setFatture(nuoveFatture);
+    
+    if (onUpdateFattura) {
+      const fatturaAggiornata = nuoveFatture.find(f => f.id === fatturaId);
+      if (fatturaAggiornata) {
+        onUpdateFattura(fatturaId, fatturaAggiornata);
       }
-      return f;
-    }));
+    }
   };
 
+  // Handler per conferma prestazione completa
   const handleConfermaPrestazioneCompleta = (fatturaId: number, prestazione: string) => {
-    setFatture(fatture.map(f => {
-      if (f.id === fatturaId && f.voci) {
-        const voci = f.voci.map(v => {
-          if (v.codice === prestazione && v.anomalie?.includes('prestazione_incompleta')) {
-            return rimuoviAnomalieVoce(v, 'prestazione_incompleta');
-          }
-          return v;
-        });
-        
-        const anomalie = getAnomalieFattura({ ...f, voci });
-        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
-        
-        return {
-          ...f,
-          voci,
-          anomalie,
-          stato: stato as any
-        };
+    const nuoveFatture = vociManagement.handleConfermaPrestazioneCompleta(fatture, fatturaId, prestazione);
+    setFatture(nuoveFatture);
+    
+    if (onUpdateFattura) {
+      const fatturaAggiornata = nuoveFatture.find(f => f.id === fatturaId);
+      if (fatturaAggiornata) {
+        onUpdateFattura(fatturaId, fatturaAggiornata);
       }
-      return f;
-    }));
+    }
   };
 
   const confermaAggiungiProdotti = (prodottiSelezionati: { codice: string; quantita: number }[]) => {
@@ -595,56 +527,28 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   // Handler per correggere unità di misura
   const handleCorreggiUnita = (fatturaId: number, voceId: number, unitaCorretta: string) => {
-    setFatture(fatture.map(f => {
-      if (f.id === fatturaId && f.voci) {
-        const voci = f.voci.map(v => {
-          if (v.id === voceId) {
-            // Rimuovi l'anomalia unita_incompatibile
-            const voceSenzaAnomalie = rimuoviAnomalieVoce(v, 'unita_incompatibile');
-            return { ...voceSenzaAnomalie, unita: unitaCorretta };
-          }
-          return v;
-        });
-        
-        // Usa la funzione completa che gestisce anomalie e totali
-        const updatedFattura = aggiornaFatturaCompleta(f, voci);
-        
-        if (onUpdateFattura) {
-          onUpdateFattura(fatturaId, updatedFattura);
-        }
-        
-        return updatedFattura;
+    const nuoveFatture = vociManagement.handleCorreggiUnita(fatture, fatturaId, voceId, unitaCorretta);
+    setFatture(nuoveFatture);
+    
+    if (onUpdateFattura) {
+      const fatturaAggiornata = nuoveFatture.find(f => f.id === fatturaId);
+      if (fatturaAggiornata) {
+        onUpdateFattura(fatturaId, fatturaAggiornata);
       }
-      return f;
-    }));
+    }
   };
 
   // Handler per correggere quantità
   const handleCorreggiQuantita = (fatturaId: number, voceId: number, nuovaQuantita: number) => {
-    console.log('Correzione quantità:', { fatturaId, voceId, nuovaQuantita });
+    const nuoveFatture = vociManagement.handleCorreggiQuantita(fatture, fatturaId, voceId, nuovaQuantita);
+    setFatture(nuoveFatture);
     
-    setFatture(fatture.map(f => {
-      if (f.id === fatturaId && f.voci) {
-        const voci = f.voci.map(v => {
-          if (v.id === voceId) {
-            // Aggiorna la quantità e rimuovi sempre l'anomalia quantita_anomala
-            const voceSenzaAnomalie = rimuoviAnomalieVoce(v, 'quantita_anomala');
-            return { ...voceSenzaAnomalie, quantita: nuovaQuantita };
-          }
-          return v;
-        });
-        
-        // Usa la funzione completa che gestisce anomalie e totali
-        const updatedFattura = aggiornaFatturaCompleta(f, voci);
-        
-        if (onUpdateFattura) {
-          onUpdateFattura(fatturaId, updatedFattura);
-        }
-        
-        return updatedFattura;
+    if (onUpdateFattura) {
+      const fatturaAggiornata = nuoveFatture.find(f => f.id === fatturaId);
+      if (fatturaAggiornata) {
+        onUpdateFattura(fatturaId, fatturaAggiornata);
       }
-      return f;
-    }));
+    }
     
     // Pulisci il valore temporaneo dopo l'uso
     const key = `${fatturaId}-${voceId}`;
@@ -658,150 +562,16 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   // Handler per correggere codice
   const handleCorreggiCodice = (fatturaId: number, voceId: number, nuovoCodice: string, nuovoPrezzo?: number, nuovaQuantita?: number) => {
-    console.log('Correzione codice:', { fatturaId, voceId, nuovoCodice });
+    const nuoveFatture = vociManagement.handleCorreggiCodice(fatture, fatturaId, voceId, nuovoCodice, nuovoPrezzo, nuovaQuantita);
+    setFatture(nuoveFatture);
     
-    setFatture(fatture.map(f => {
-      if (f.id === fatturaId && f.voci) {
-        // Prima passo: aggiorna il codice della voce
-        let vociConNuovoCodice = f.voci.map(v => {
-          if (v.id === voceId) {
-            let nuovaDescrizione = v.descrizione;
-            let nuovoTipo: 'prestazione' | 'prodotto' | 'macchinario' = v.tipo || 'prestazione';
-            let nuovaPrestazionePadre: string | undefined = v.prestazionePadre;
-            let nuovaUnita = v.unita;
-            let nuovoImportoNetto = v.importoNetto;
-            let nuovoImportoLordo = v.importoLordo;
-            let quantitaAggiornata = nuovaQuantita !== undefined ? nuovaQuantita : v.quantita;
-            
-            // Prima cerca nelle combinazioni per capire il tipo
-            const combinazione = combinazioni.find(c => c.codice === nuovoCodice);
-            console.log('Combinazione trovata:', combinazione);
-            
-            // Se non è una combinazione, potrebbe essere una prestazione semplice
-            if (!combinazione) {
-              const prestazioneSemplice = prestazioniMap[nuovoCodice];
-              if (prestazioneSemplice) {
-                nuovaDescrizione = prestazioneSemplice.descrizione;
-                nuovoTipo = 'prestazione';
-                nuovaPrestazionePadre = undefined;
-                nuovaUnita = 'prestazione';
-                quantitaAggiornata = 1; // Prestazioni sempre quantità 1
-                // Se viene fornito un nuovo prezzo per la prestazione
-                if (nuovoPrezzo !== undefined && nuovoPrezzo > 0) {
-                  nuovoImportoNetto = nuovoPrezzo;
-                  nuovoImportoLordo = nuovoPrezzo;
-                }
-              }
-            } else if (combinazione) {
-              if (combinazione.tipo === 'prestazione') {
-                // È una prestazione semplice
-                const prestazione = prestazioniMap[combinazione.prestazione!];
-                if (prestazione) {
-                  nuovaDescrizione = prestazione.descrizione;
-                  nuovoTipo = 'prestazione';
-                  nuovaPrestazionePadre = undefined; // Le prestazioni non hanno prestazione padre
-                  nuovaUnita = 'prestazione';
-                  quantitaAggiornata = 1; // Prestazioni sempre quantità 1
-                  // Se viene fornito un nuovo prezzo per la prestazione
-                  if (nuovoPrezzo !== undefined && nuovoPrezzo > 0) {
-                    nuovoImportoNetto = nuovoPrezzo;
-                    nuovoImportoLordo = nuovoPrezzo;
-                  }
-                }
-              } else if (combinazione.tipo === 'prestazione+prodotto') {
-                // È un prodotto
-                const prestazione = prestazioniMap[combinazione.prestazione!];
-                const prodotto = prodottiMap[combinazione.accessorio!];
-                if (prestazione && prodotto) {
-                  nuovaDescrizione = `${prestazione.descrizione} - ${prodotto.nome}`;
-                  nuovoTipo = 'prodotto';
-                  // Imposta la prestazione padre per evitare l'anomalia prodotto_orfano
-                  nuovaPrestazionePadre = combinazione.prestazione;
-                  nuovaUnita = prodotto.unita; // Usa l'unità corretta del prodotto
-                  // I prodotti hanno sempre prezzo 0
-                  nuovoImportoNetto = 0;
-                  nuovoImportoLordo = 0;
-                }
-              } else if (combinazione.tipo === 'prestazione+macchinario') {
-                // È un macchinario
-                const prestazione = prestazioniMap[combinazione.prestazione!];
-                const macchinario = macchinari.find(m => m.codice === combinazione.accessorio);
-                if (prestazione && macchinario) {
-                  nuovaDescrizione = `${prestazione.descrizione} - ${macchinario.nome}`;
-                  nuovoTipo = 'macchinario';
-                  nuovaPrestazionePadre = combinazione.prestazione;
-                  nuovaUnita = 'utilizzo'; // I macchinari usano sempre 'utilizzo'
-                  quantitaAggiornata = 1; // Macchinari sempre quantità 1
-                  // Se viene fornito un nuovo prezzo per il macchinario
-                  if (nuovoPrezzo !== undefined && nuovoPrezzo > 0) {
-                    nuovoImportoNetto = nuovoPrezzo;
-                    nuovoImportoLordo = nuovoPrezzo;
-                  }
-                }
-              }
-            }
-            
-            const voceAggiornata = { 
-              ...v, 
-              codice: nuovoCodice, 
-              descrizione: nuovaDescrizione, 
-              tipo: nuovoTipo,
-              prestazionePadre: nuovaPrestazionePadre,
-              unita: nuovaUnita,
-              importoNetto: nuovoImportoNetto,
-              importoLordo: nuovoImportoLordo,
-              quantita: quantitaAggiornata
-            };
-            
-            console.log('Voce prima:', v);
-            console.log('Voce aggiornata:', voceAggiornata);
-            return voceAggiornata;
-          }
-          return v;
-        });
-        
-        // Secondo passo: ricalcola le anomalie per tutte le voci
-        const voci = vociConNuovoCodice.map(v => {
-          const anomalieVoce = verificaAnomalieVoce(v, vociConNuovoCodice);
-          console.log(`Anomalie ricalcolate per voce ${v.id} (${v.codice}):`, {
-            codice: v.codice,
-            tipo: v.tipo,
-            prestazionePadre: v.prestazionePadre,
-            anomalie: anomalieVoce,
-            vociPresenti: vociConNuovoCodice.map(vx => ({ codice: vx.codice, tipo: vx.tipo }))
-          });
-          return { ...v, anomalie: anomalieVoce };
-        });
-        
-        // Ricalcola importi se necessario
-        const totaleNetto = calculateTotaleImponibile(voci.map(v => ({ imponibile: v.importoNetto })));
-        const totaleIva = totaleNetto * 0.22;
-        
-        const anomalie = getAnomalieFattura({ ...f, voci });
-        console.log('Anomalie fattura dopo correzione:', anomalie);
-        const stato = anomalie.length > 0 ? 'anomalia' : 'da_importare';
-        console.log('Nuovo stato fattura:', stato);
-        
-        const updatedFattura = { 
-          ...f, 
-          voci, 
-          anomalie, 
-          stato: stato as any,
-          imponibile: totaleNetto,
-          iva: totaleIva,
-          totale: totaleNetto + totaleIva
-        };
-        
-        console.log('Fattura aggiornata:', updatedFattura);
-        
-        if (onUpdateFattura) {
-          onUpdateFattura(fatturaId, updatedFattura);
-        }
-        
-        return updatedFattura;
+    if (onUpdateFattura) {
+      const fatturaAggiornata = nuoveFatture.find(f => f.id === fatturaId);
+      if (fatturaAggiornata) {
+        onUpdateFattura(fatturaId, fatturaAggiornata);
       }
-      return f;
-    }));
+    }
+    
     modalStates.setShowCorreggiCodiceModal(null);
   };
 

@@ -3,8 +3,7 @@
  * Gestisce tutte le operazioni di modifica e correzione voci
  */
 
-import { calculateAnomalie } from '@/utils/fattureHelpers';
-import { calculateTotaleImponibile } from '../utils';
+import { AnomalieProcessor } from './anomalieProcessor';
 import type { FatturaConVoci, VoceFatturaEstesa } from './anomalieCalculator';
 
 export class VociProcessor {
@@ -12,72 +11,42 @@ export class VociProcessor {
   /**
    * Imposta il prezzo a zero per una voce
    */
-  static impostaPrezzoZero(fattura: FatturaConVoci, voceId: number): FatturaConVoci {
+  static impostaPrezzoZero(
+    fattura: FatturaConVoci, 
+    voceId: number,
+    prestazioniMap: Record<string, any>,
+    prodottiMap: Record<string, any>
+  ): FatturaConVoci {
     if (!fattura.voci) return fattura;
     
     const voci = fattura.voci.map(v => {
       if (v.id === voceId) {
-        const anomalieFiltrate = v.anomalie ? v.anomalie.filter(a => a !== 'prodotto_con_prezzo') : [];
-        return { ...v, importoNetto: 0, importoLordo: 0, anomalie: anomalieFiltrate };
+        const voceSenzaAnomalie = AnomalieProcessor.rimuoviAnomalieVoce(v, 'prodotto_con_prezzo');
+        return { ...voceSenzaAnomalie, importoNetto: 0, importoLordo: 0 };
       }
       return v;
     });
     
-    // Ricalcola anomalie
-    const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), fattura.medicoId);
-    const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
-    
-    // Ricalcola totali
-    const totaleNetto = calculateTotaleImponibile(voci.map(v => ({ imponibile: v.importoNetto })));
-    
-    return { ...fattura, voci, imponibile: totaleNetto, totale: totaleNetto * 1.22, anomalie: nuoveAnomalie, stato: stato as any };
+    // Usa AnomalieProcessor per ricalcolare tutto (anomalie + totali + stato)
+    return AnomalieProcessor.aggiornaFatturaCompleta(fattura, voci, prestazioniMap, prodottiMap);
   }
 
   /**
    * Elimina una voce dalla fattura
    */
-  static eliminaVoce(fattura: FatturaConVoci, voceId: number): FatturaConVoci {
+  static eliminaVoce(
+    fattura: FatturaConVoci, 
+    voceId: number,
+    prestazioniMap: Record<string, any>,
+    prodottiMap: Record<string, any>
+  ): FatturaConVoci {
     if (!fattura.voci) return fattura;
     
     // Rimuovi la voce
     const voci = fattura.voci.filter(v => v.id !== voceId);
     
-    // Ricalcola anomalie
-    const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), fattura.medicoId);
-    const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
-    
-    // Ricalcola totali
-    const totaleNetto = calculateTotaleImponibile(voci.map(v => ({ imponibile: v.importoNetto })));
-    
-    return { ...fattura, voci, imponibile: totaleNetto, totale: totaleNetto * 1.22, anomalie: nuoveAnomalie, stato: stato as any };
-  }
-
-  /**
-   * Aggiunge una prestazione mancante
-   */
-  static aggiungiPrestazioneMancante(fattura: FatturaConVoci, codicePrestazione: string): FatturaConVoci {
-    if (!fattura.voci) return fattura;
-    
-    // Aggiungi nuova voce prestazione con importo 0
-    const nuovaVoce: VoceFatturaEstesa = {
-      id: Date.now(),
-      codice: codicePrestazione,
-      descrizione: `Prestazione ${codicePrestazione}`,
-      quantita: 1,
-      unita: 'PZ',
-      importoNetto: 0,
-      importoLordo: 0,
-      tipo: 'prestazione',
-      anomalie: []
-    };
-    
-    const voci = [...(fattura.voci || []), nuovaVoce];
-    
-    // Ricalcola anomalie
-    const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), fattura.medicoId);
-    const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
-    
-    return { ...fattura, voci, anomalie: nuoveAnomalie, stato: stato as any };
+    // Usa AnomalieProcessor per ricalcolare tutto
+    return AnomalieProcessor.aggiornaFatturaCompleta(fattura, voci, prestazioniMap, prodottiMap);
   }
 
   /**
@@ -87,111 +56,110 @@ export class VociProcessor {
     fattura: FatturaConVoci, 
     voceId: number, 
     nuovoPrezzo: number, 
-    codicePrestazione: string
+    codicePrestazione: string,
+    prestazioniMap: Record<string, any>,
+    prodottiMap: Record<string, any>
   ): FatturaConVoci {
     if (!fattura.voci) return fattura;
     
     const voci = fattura.voci.map(v => {
       if (v.id === voceId) {
-        const anomalieFiltrate = v.anomalie ? 
-          v.anomalie.filter(a => a !== 'prodotto_orfano' && a !== 'prodotto_con_prezzo') : [];
+        // Rimuovi anomalie usando AnomalieProcessor
+        let voceAggiornata = AnomalieProcessor.rimuoviAnomalieVoce(v, ['prodotto_orfano', 'prodotto_con_prezzo']);
         return { 
-          ...v, 
+          ...voceAggiornata, 
           importoNetto: nuovoPrezzo,
           importoLordo: nuovoPrezzo * 1.22,
-          prestazioneAssociata: codicePrestazione,
-          anomalie: anomalieFiltrate 
+          prestazioneAssociata: codicePrestazione
         };
       }
       return v;
     });
     
-    // Ricalcola anomalie
-    const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), fattura.medicoId);
-    const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
-    
-    // Ricalcola totali
-    const totaleNetto = calculateTotaleImponibile(voci.map(v => ({ imponibile: v.importoNetto })));
-    
-    return { ...fattura, voci, imponibile: totaleNetto, totale: totaleNetto * 1.22, anomalie: nuoveAnomalie, stato: stato as any };
+    // Usa AnomalieProcessor per ricalcolare tutto
+    return AnomalieProcessor.aggiornaFatturaCompleta(fattura, voci, prestazioniMap, prodottiMap);
   }
 
   /**
    * Associa una prestazione a una voce
    */
-  static associaPrestazione(fattura: FatturaConVoci, voceId: number, codicePrestazione: string): FatturaConVoci {
+  static associaPrestazione(
+    fattura: FatturaConVoci, 
+    voceId: number, 
+    codicePrestazione: string,
+    prestazioniMap: Record<string, any>,
+    prodottiMap: Record<string, any>
+  ): FatturaConVoci {
     if (!fattura.voci) return fattura;
     
     const voci = fattura.voci.map(v => {
       if (v.id === voceId) {
-        const anomalieFiltrate = v.anomalie ? v.anomalie.filter(a => a !== 'prodotto_orfano') : [];
+        const voceAggiornata = AnomalieProcessor.rimuoviAnomalieVoce(v, 'prodotto_orfano');
         return { 
-          ...v, 
-          prestazioneAssociata: codicePrestazione,
-          anomalie: anomalieFiltrate 
+          ...voceAggiornata, 
+          prestazioneAssociata: codicePrestazione
         };
       }
       return v;
     });
     
-    // Ricalcola anomalie
-    const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), fattura.medicoId);
-    const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
-    
-    return { ...fattura, voci, anomalie: nuoveAnomalie, stato: stato as any };
+    // Usa AnomalieProcessor per ricalcolare tutto
+    return AnomalieProcessor.aggiornaFatturaCompleta(fattura, voci, prestazioniMap, prodottiMap);
   }
 
   /**
    * Corregge l'unità di misura
    */
-  static correggiUnita(fattura: FatturaConVoci, voceId: number, unitaCorretta: string): FatturaConVoci {
+  static correggiUnita(
+    fattura: FatturaConVoci, 
+    voceId: number, 
+    unitaCorretta: string,
+    prestazioniMap: Record<string, any>,
+    prodottiMap: Record<string, any>
+  ): FatturaConVoci {
     if (!fattura.voci) return fattura;
     
     const voci = fattura.voci.map(v => {
       if (v.id === voceId) {
-        const anomalieFiltrate = v.anomalie ? v.anomalie.filter(a => a !== 'unita_non_valida') : [];
-        return { ...v, unita: unitaCorretta, anomalie: anomalieFiltrate };
+        const voceAggiornata = AnomalieProcessor.rimuoviAnomalieVoce(v, 'unita_non_valida');
+        return { ...voceAggiornata, unita: unitaCorretta };
       }
       return v;
     });
     
-    // Ricalcola anomalie
-    const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), fattura.medicoId);
-    const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
-    
-    return { ...fattura, voci, anomalie: nuoveAnomalie, stato: stato as any };
+    // Usa AnomalieProcessor per ricalcolare tutto
+    return AnomalieProcessor.aggiornaFatturaCompleta(fattura, voci, prestazioniMap, prodottiMap);
   }
 
   /**
    * Corregge la quantità
    */
-  static correggiQuantita(fattura: FatturaConVoci, voceId: number, nuovaQuantita: number): FatturaConVoci {
+  static correggiQuantita(
+    fattura: FatturaConVoci, 
+    voceId: number, 
+    nuovaQuantita: number,
+    prestazioniMap: Record<string, any>,
+    prodottiMap: Record<string, any>
+  ): FatturaConVoci {
     if (!fattura.voci) return fattura;
     
     const voci = fattura.voci.map(v => {
       if (v.id === voceId) {
-        const anomalieFiltrate = v.anomalie ? v.anomalie.filter(a => a !== 'quantita_zero') : [];
+        const voceAggiornata = AnomalieProcessor.rimuoviAnomalieVoce(v, 'quantita_zero');
         const prezzoUnitario = v.importoNetto / (v.quantita || 1);
         const nuovoImporto = prezzoUnitario * nuovaQuantita;
         return { 
-          ...v, 
+          ...voceAggiornata, 
           quantita: nuovaQuantita,
           importoNetto: nuovoImporto,
-          importoLordo: nuovoImporto * 1.22,
-          anomalie: anomalieFiltrate 
+          importoLordo: nuovoImporto * 1.22
         };
       }
       return v;
     });
     
-    // Ricalcola anomalie
-    const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), fattura.medicoId);
-    const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
-    
-    // Ricalcola totali
-    const totaleNetto = calculateTotaleImponibile(voci.map(v => ({ imponibile: v.importoNetto })));
-    
-    return { ...fattura, voci, imponibile: totaleNetto, totale: totaleNetto * 1.22, anomalie: nuoveAnomalie, stato: stato as any };
+    // Usa AnomalieProcessor per ricalcolare tutto
+    return AnomalieProcessor.aggiornaFatturaCompleta(fattura, voci, prestazioniMap, prodottiMap);
   }
 
   /**
@@ -202,25 +170,66 @@ export class VociProcessor {
     voceId: number, 
     nuovoCodice: string, 
     nuovoPrezzo?: number, 
-    nuovaQuantita?: number
+    nuovaQuantita?: number,
+    prestazioniMap?: Record<string, any>,
+    prodottiMap?: Record<string, any>
   ): FatturaConVoci {
     if (!fattura.voci) return fattura;
     
+    // Importa AnomalieCalculator per usare getUnitaCorretta
+    const { AnomalieCalculator } = require('./anomalieCalculator');
+    
     const voci = fattura.voci.map(v => {
       if (v.id === voceId) {
+        // Rimuovi anomalie correlate al codice e unità
+        let voceAggiornata = AnomalieProcessor.rimuoviAnomalieVoce(v, ['codice_sconosciuto', 'unita_non_valida']);
+        
         const updates: any = { 
-          codice: nuovoCodice,
-          anomalie: [] // Reset anomalie dopo correzione codice
+          codice: nuovoCodice
         };
         
+        // Determina se è una prestazione o prodotto e aggiorna di conseguenza
+        const prestazione = prestazioniMap && prestazioniMap[nuovoCodice];
+        const prodotto = prodottiMap && prodottiMap[nuovoCodice];
+        
+        if (prestazione) {
+          // È una prestazione - usa sempre 'prestazione' come unità
+          updates.tipo = 'prestazione';
+          updates.unita = 'prestazione';
+          updates.descrizione = prestazione.descrizione || `Prestazione ${nuovoCodice}`;
+          // Le prestazioni hanno sempre quantità 1
+          updates.quantita = 1;
+        } else if (prodotto) {
+          // È un prodotto
+          updates.tipo = 'prodotto';
+          updates.unita = prodotto.unita || 'PZ';
+          updates.descrizione = prodotto.nome || `Prodotto ${nuovoCodice}`;
+          // Mantieni la quantità o usa quella fornita
+          if (nuovaQuantita !== undefined) {
+            updates.quantita = nuovaQuantita;
+          }
+        } else {
+          // Codice non riconosciuto, mantieni i valori esistenti ma aggiorna comunque
+          updates.descrizione = v.descrizione || `Articolo ${nuovoCodice}`;
+          
+          // Prova a determinare l'unità corretta usando AnomalieCalculator
+          const voceConNuovoCodice = { ...voceAggiornata, codice: nuovoCodice };
+          const unitaCorretta = AnomalieCalculator.getUnitaCorretta(voceConNuovoCodice, prestazioniMap || {}, prodottiMap || {});
+          if (unitaCorretta) {
+            updates.unita = unitaCorretta;
+          }
+        }
+        
+        // Gestione del prezzo
         if (nuovoPrezzo !== undefined) {
           updates.importoNetto = nuovoPrezzo;
           updates.importoLordo = nuovoPrezzo * 1.22;
         }
         
-        if (nuovaQuantita !== undefined) {
+        // Se cambia la quantità (e non è già stata gestita sopra)
+        if (nuovaQuantita !== undefined && !prestazione) {
           updates.quantita = nuovaQuantita;
-          // Se cambia la quantità, ricalcola l'importo basato sul prezzo unitario
+          // Ricalcola l'importo se necessario
           if (nuovoPrezzo === undefined && v.quantita && v.quantita > 0) {
             const prezzoUnitario = v.importoNetto / v.quantita;
             updates.importoNetto = prezzoUnitario * nuovaQuantita;
@@ -228,60 +237,56 @@ export class VociProcessor {
           }
         }
         
-        return { ...v, ...updates };
+        return { ...voceAggiornata, ...updates };
       }
       return v;
     });
     
-    // Ricalcola anomalie con il nuovo codice
-    const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), fattura.medicoId);
-    const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
-    
-    // Ricalcola totali
-    const totaleNetto = calculateTotaleImponibile(voci.map(v => ({ imponibile: v.importoNetto })));
-    
-    return { ...fattura, voci, imponibile: totaleNetto, totale: totaleNetto * 1.22, anomalie: nuoveAnomalie, stato: stato as any };
+    // Usa AnomalieProcessor per ricalcolare tutto
+    return AnomalieProcessor.aggiornaFatturaCompleta(fattura, voci, prestazioniMap || {}, prodottiMap || {});
   }
 
   /**
    * Conferma che una prestazione è completa (rimuove l'anomalia prodotti_mancanti)
    */
-  static confermaPrestazioneCompleta(fattura: FatturaConVoci, prestazione: string): FatturaConVoci {
+  static confermaPrestazioneCompleta(
+    fattura: FatturaConVoci, 
+    prestazione: string,
+    prestazioniMap: Record<string, any>,
+    prodottiMap: Record<string, any>
+  ): FatturaConVoci {
     if (!fattura.voci) return fattura;
     
     const voci = fattura.voci.map(v => {
-      if (v.codice === prestazione && v.anomalie) {
-        const anomalieFiltrate = v.anomalie.filter(a => a !== 'prodotti_mancanti');
-        return { ...v, anomalie: anomalieFiltrate };
+      if (v.codice === prestazione) {
+        return AnomalieProcessor.rimuoviAnomalieVoce(v, 'prodotti_mancanti');
       }
       return v;
     });
     
-    // Ricalcola anomalie
-    const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), fattura.medicoId);
-    const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
-    
-    return { ...fattura, voci, anomalie: nuoveAnomalie, stato: stato as any };
+    // Usa AnomalieProcessor per ricalcolare tutto
+    return AnomalieProcessor.aggiornaFatturaCompleta(fattura, voci, prestazioniMap, prodottiMap);
   }
 
   /**
    * Conferma che una prestazione con macchinario è completa
    */
-  static confermaPrestazioneMacchinarioCompleta(fattura: FatturaConVoci, prestazione: string): FatturaConVoci {
+  static confermaPrestazioneMacchinarioCompleta(
+    fattura: FatturaConVoci, 
+    prestazione: string,
+    prestazioniMap: Record<string, any>,
+    prodottiMap: Record<string, any>
+  ): FatturaConVoci {
     if (!fattura.voci) return fattura;
     
     const voci = fattura.voci.map(v => {
-      if (v.codice === prestazione && v.anomalie) {
-        const anomalieFiltrate = v.anomalie.filter(a => a !== 'macchinario_mancante');
-        return { ...v, anomalie: anomalieFiltrate };
+      if (v.codice === prestazione) {
+        return AnomalieProcessor.rimuoviAnomalieVoce(v, 'macchinario_mancante');
       }
       return v;
     });
     
-    // Ricalcola anomalie
-    const nuoveAnomalie = calculateAnomalie(voci.map(v => ({ ...v, anomalie: v.anomalie || [] })), fattura.medicoId);
-    const stato = nuoveAnomalie.length > 0 ? 'anomalia' : 'da_importare';
-    
-    return { ...fattura, voci, anomalie: nuoveAnomalie, stato: stato as any };
+    // Usa AnomalieProcessor per ricalcolare tutto
+    return AnomalieProcessor.aggiornaFatturaCompleta(fattura, voci, prestazioniMap, prodottiMap);
   }
 }

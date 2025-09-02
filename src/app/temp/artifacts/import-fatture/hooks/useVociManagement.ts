@@ -14,7 +14,6 @@ interface UseVociManagementReturn {
   // Handlers per modifiche voci
   handleImpostaPrezzoZero: (fatture: FatturaConVoci[], fatturaId: number, voceId: number) => FatturaConVoci[];
   handleEliminaVoce: (fatture: FatturaConVoci[], fatturaId: number, voceId: number) => FatturaConVoci[];
-  handleAggiungiPrestazioneMancante: (fatture: FatturaConVoci[], fatturaId: number, codicePrestazione: string) => FatturaConVoci[];
   handleAggiornaPrezzoEAssociaPrestazione: (
     fatture: FatturaConVoci[], 
     fatturaId: number, 
@@ -33,16 +32,21 @@ interface UseVociManagementReturn {
     nuovoPrezzo?: number, 
     nuovaQuantita?: number
   ) => FatturaConVoci[];
+  handleConfermaPrestazioneCompleta: (fatture: FatturaConVoci[], fatturaId: number, prestazione: string) => FatturaConVoci[];
+  handleConfermaPrestazioneMacchinarioCompleta: (fatture: FatturaConVoci[], fatturaId: number, prestazione: string) => FatturaConVoci[];
 }
 
-export function useVociManagement(): UseVociManagementReturn {
+export function useVociManagement(
+  prestazioniMap: Record<string, any>,
+  prodottiMap: Record<string, any>
+): UseVociManagementReturn {
   const [quantitaTemp, setQuantitaTemp] = useState<{ [key: string]: number }>({});
   const [prezzoTempProdottoOrfano, setPrezzoTempProdottoOrfano] = useState<{ [key: string]: number }>({});
 
   const handleImpostaPrezzoZero = (fatture: FatturaConVoci[], fatturaId: number, voceId: number): FatturaConVoci[] => {
     return fatture.map(f => {
       if (f.id === fatturaId) {
-        return VociProcessor.impostaPrezzoZero(f, voceId);
+        return VociProcessor.impostaPrezzoZero(f, voceId, prestazioniMap, prodottiMap);
       }
       return f;
     });
@@ -51,16 +55,7 @@ export function useVociManagement(): UseVociManagementReturn {
   const handleEliminaVoce = (fatture: FatturaConVoci[], fatturaId: number, voceId: number): FatturaConVoci[] => {
     return fatture.map(f => {
       if (f.id === fatturaId) {
-        return VociProcessor.eliminaVoce(f, voceId);
-      }
-      return f;
-    });
-  };
-
-  const handleAggiungiPrestazioneMancante = (fatture: FatturaConVoci[], fatturaId: number, codicePrestazione: string): FatturaConVoci[] => {
-    return fatture.map(f => {
-      if (f.id === fatturaId) {
-        return VociProcessor.aggiungiPrestazioneMancante(f, codicePrestazione);
+        return VociProcessor.eliminaVoce(f, voceId, prestazioniMap, prodottiMap);
       }
       return f;
     });
@@ -75,7 +70,7 @@ export function useVociManagement(): UseVociManagementReturn {
   ): FatturaConVoci[] => {
     return fatture.map(f => {
       if (f.id === fatturaId) {
-        return VociProcessor.aggiornaPrezzoEAssociaPrestazione(f, voceId, nuovoPrezzo, codicePrestazione);
+        return VociProcessor.aggiornaPrezzoEAssociaPrestazione(f, voceId, nuovoPrezzo, codicePrestazione, prestazioniMap, prodottiMap);
       }
       return f;
     });
@@ -84,7 +79,7 @@ export function useVociManagement(): UseVociManagementReturn {
   const handleAssociaPrestazione = (fatture: FatturaConVoci[], fatturaId: number, voceId: number, codicePrestazione: string): FatturaConVoci[] => {
     return fatture.map(f => {
       if (f.id === fatturaId) {
-        return VociProcessor.associaPrestazione(f, voceId, codicePrestazione);
+        return VociProcessor.associaPrestazione(f, voceId, codicePrestazione, prestazioniMap, prodottiMap);
       }
       return f;
     });
@@ -93,7 +88,7 @@ export function useVociManagement(): UseVociManagementReturn {
   const handleCorreggiUnita = (fatture: FatturaConVoci[], fatturaId: number, voceId: number, unitaCorretta: string): FatturaConVoci[] => {
     return fatture.map(f => {
       if (f.id === fatturaId) {
-        return VociProcessor.correggiUnita(f, voceId, unitaCorretta);
+        return VociProcessor.correggiUnita(f, voceId, unitaCorretta, prestazioniMap, prodottiMap);
       }
       return f;
     });
@@ -102,7 +97,7 @@ export function useVociManagement(): UseVociManagementReturn {
   const handleCorreggiQuantita = (fatture: FatturaConVoci[], fatturaId: number, voceId: number, nuovaQuantita: number): FatturaConVoci[] => {
     return fatture.map(f => {
       if (f.id === fatturaId) {
-        return VociProcessor.correggiQuantita(f, voceId, nuovaQuantita);
+        return VociProcessor.correggiQuantita(f, voceId, nuovaQuantita, prestazioniMap, prodottiMap);
       }
       return f;
     });
@@ -118,7 +113,25 @@ export function useVociManagement(): UseVociManagementReturn {
   ): FatturaConVoci[] => {
     return fatture.map(f => {
       if (f.id === fatturaId) {
-        return VociProcessor.correggiCodice(f, voceId, nuovoCodice, nuovoPrezzo, nuovaQuantita);
+        return VociProcessor.correggiCodice(f, voceId, nuovoCodice, nuovoPrezzo, nuovaQuantita, prestazioniMap, prodottiMap);
+      }
+      return f;
+    });
+  };
+
+  const handleConfermaPrestazioneCompleta = (fatture: FatturaConVoci[], fatturaId: number, prestazione: string): FatturaConVoci[] => {
+    return fatture.map(f => {
+      if (f.id === fatturaId) {
+        return VociProcessor.confermaPrestazioneCompleta(f, prestazione, prestazioniMap, prodottiMap);
+      }
+      return f;
+    });
+  };
+
+  const handleConfermaPrestazioneMacchinarioCompleta = (fatture: FatturaConVoci[], fatturaId: number, prestazione: string): FatturaConVoci[] => {
+    return fatture.map(f => {
+      if (f.id === fatturaId) {
+        return VociProcessor.confermaPrestazioneMacchinarioCompleta(f, prestazione, prestazioniMap, prodottiMap);
       }
       return f;
     });
@@ -136,11 +149,12 @@ export function useVociManagement(): UseVociManagementReturn {
     // Handlers
     handleImpostaPrezzoZero,
     handleEliminaVoce,
-    handleAggiungiPrestazioneMancante,
     handleAggiornaPrezzoEAssociaPrestazione,
     handleAssociaPrestazione,
     handleCorreggiUnita,
     handleCorreggiQuantita,
-    handleCorreggiCodice
+    handleCorreggiCodice,
+    handleConfermaPrestazioneCompleta,
+    handleConfermaPrestazioneMacchinarioCompleta
   };
 }

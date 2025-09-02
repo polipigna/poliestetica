@@ -5,6 +5,7 @@
 
 import { AnomalieCalculator } from './anomalieCalculator';
 import type { FatturaConVoci, VoceFatturaEstesa } from './anomalieCalculator';
+import { calculateTotaleImponibile, calculateIva } from '../utils';
 
 export class AnomalieProcessor {
   
@@ -106,5 +107,68 @@ export class AnomalieProcessor {
       const anomalie = AnomalieCalculator.getAnomalieFattura(f);
       return anomalie.includes(tipoAnomalia);
     });
+  }
+
+  /**
+   * Rimuove anomalie specifiche da una voce
+   * @param voce La voce da cui rimuovere le anomalie
+   * @param anomalieDaRimuovere Anomalia o array di anomalie da rimuovere
+   * @returns La voce aggiornata senza le anomalie specificate
+   */
+  static rimuoviAnomalieVoce(
+    voce: VoceFatturaEstesa, 
+    anomalieDaRimuovere: string | string[]
+  ): VoceFatturaEstesa {
+    const anomalieArray = Array.isArray(anomalieDaRimuovere) 
+      ? anomalieDaRimuovere 
+      : [anomalieDaRimuovere];
+    
+    return {
+      ...voce,
+      anomalie: voce.anomalie 
+        ? voce.anomalie.filter((a: string) => !anomalieArray.includes(a)) 
+        : []
+    };
+  }
+
+  /**
+   * Aggiorna completamente una fattura: ricalcola anomalie e totali
+   * @param fattura La fattura da aggiornare
+   * @param voci Le voci aggiornate della fattura
+   * @param prestazioniMap Mappa delle prestazioni disponibili
+   * @param prodottiMap Mappa dei prodotti disponibili
+   * @returns La fattura completamente aggiornata con anomalie e totali
+   */
+  static aggiornaFatturaCompleta(
+    fattura: FatturaConVoci,
+    voci: VoceFatturaEstesa[],
+    prestazioniMap: Record<string, any>,
+    prodottiMap: Record<string, any>
+  ): FatturaConVoci {
+    // Prima ricalcola le anomalie
+    const fatturaConAnomalie = this.ricalcolaAnomalieFattura(
+      { ...fattura, voci }, 
+      prestazioniMap, 
+      prodottiMap
+    );
+    
+    // Poi calcola i totali basandosi sulle voci aggiornate
+    const totaleImponibile = calculateTotaleImponibile(
+      fatturaConAnomalie.voci.map(v => ({ imponibile: v.importoNetto }))
+    );
+    
+    // Determina se la fattura ha IVA - gestisce vari casi
+    const hasIva = fattura.conIva || fattura.iva > 0 || fattura.serie === 'IVA';
+    const aliquotaIva = 22; // Aliquota IVA standard al 22%
+    const iva = hasIva ? calculateIva(totaleImponibile, aliquotaIva) : 0;
+    
+    // Ritorna la fattura completa con tutti i campi preservati
+    return {
+      ...fatturaConAnomalie,
+      imponibile: totaleImponibile,
+      iva: iva,
+      totale: totaleImponibile + iva,
+      conIva: hasIva // Aggiorna anche il flag conIva per consistenza
+    };
   }
 }

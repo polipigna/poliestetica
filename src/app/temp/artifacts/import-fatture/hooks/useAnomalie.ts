@@ -1,7 +1,6 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { AnomalieCalculator, AnomalieProcessor } from '../services';
 import type { VoceFatturaEstesa, FatturaConVoci } from '../services';
-import { calculateTotaleImponibile, calculateIva } from '../utils';
 
 interface UseAnomalieReturn {
   verificaAnomalieVoce: (voce: VoceFatturaEstesa, voci: VoceFatturaEstesa[]) => string[];
@@ -33,9 +32,9 @@ export function useAnomalie(
   }, []);
 
   // Funzione per ricalcolare le anomalie di una fattura - usa il service
-  const ricalcolaAnomalieFattura = (f: FatturaConVoci): FatturaConVoci => {
+  const ricalcolaAnomalieFattura = useCallback((f: FatturaConVoci): FatturaConVoci => {
     return AnomalieProcessor.ricalcolaAnomalieFattura(f, prestazioniMap, prodottiMap);
-  };
+  }, [prestazioniMap, prodottiMap]);
 
   // Funzione per determinare l'unità corretta per una voce
   const getUnitaCorretta = useMemo(() => {
@@ -51,46 +50,20 @@ export function useAnomalie(
     };
   }, [prestazioniMap, prodottiMap]);
 
-  // Funzione per rimuovere anomalie specifiche da una voce
-  const rimuoviAnomalieVoce = useMemo(() => {
-    return (voce: VoceFatturaEstesa, anomalieDaRimuovere: string | string[]): VoceFatturaEstesa => {
-      const anomalieArray = Array.isArray(anomalieDaRimuovere) ? anomalieDaRimuovere : [anomalieDaRimuovere];
-      return {
-        ...voce,
-        anomalie: voce.anomalie ? voce.anomalie.filter((a: string) => !anomalieArray.includes(a)) : []
-      };
-    };
+  // Funzione per rimuovere anomalie specifiche da una voce - ora usa il service
+  const rimuoviAnomalieVoce = useCallback((
+    voce: VoceFatturaEstesa, 
+    anomalieDaRimuovere: string | string[]
+  ): VoceFatturaEstesa => {
+    return AnomalieProcessor.rimuoviAnomalieVoce(voce, anomalieDaRimuovere);
   }, []);
 
-  // Funzione completa per aggiornare fattura con anomalie e totali
-  const aggiornaFatturaCompleta = useMemo(() => {
-    return (fattura: FatturaConVoci, voci: VoceFatturaEstesa[]): FatturaConVoci => {
-      // Prima ricalcola le anomalie
-      const fatturaConAnomalie = AnomalieProcessor.ricalcolaAnomalieFattura(
-        { ...fattura, voci }, 
-        prestazioniMap, 
-        prodottiMap
-      );
-      
-      // Poi calcola i totali basandosi sulle voci aggiornate
-      const totaleImponibile = calculateTotaleImponibile(
-        fatturaConAnomalie.voci.map(v => ({ imponibile: v.importoNetto }))
-      );
-      
-      // Determina se la fattura ha IVA - gestisce vari casi
-      const hasIva = fattura.conIva || fattura.iva > 0 || fattura.serie === 'IVA';
-      const aliquotaIva = 22; // Aliquota IVA standard al 22%
-      const iva = hasIva ? calculateIva(totaleImponibile, aliquotaIva) : 0;
-      
-      // Ritorna la fattura completa con tutti i campi preservati
-      return {
-        ...fatturaConAnomalie,
-        imponibile: totaleImponibile, // Usa solo 'imponibile' che è il campo esistente nel tipo Fattura
-        iva: iva,
-        totale: totaleImponibile + iva,
-        conIva: hasIva // Aggiorna anche il flag conIva per consistenza
-      };
-    };
+  // Funzione completa per aggiornare fattura con anomalie e totali - ora usa il service
+  const aggiornaFatturaCompleta = useCallback((
+    fattura: FatturaConVoci, 
+    voci: VoceFatturaEstesa[]
+  ): FatturaConVoci => {
+    return AnomalieProcessor.aggiornaFatturaCompleta(fattura, voci, prestazioniMap, prodottiMap);
   }, [prestazioniMap, prodottiMap]);
 
   return {
