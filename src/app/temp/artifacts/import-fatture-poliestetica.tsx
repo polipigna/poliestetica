@@ -910,39 +910,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               </span>
             );
           })}
-          {anomalieOrdinate.includes('medico_mancante') && fatturaId && (
-            <div className="flex items-center gap-2">
-              <select
-                className="text-xs border border-gray-300 rounded px-2 py-1"
-                id={`medico-select-${fatturaId}`}
-                defaultValue=""
-              >
-                <option value="">Seleziona medico...</option>
-                {medici.map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.nome} {m.cognome}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => {
-                  const selectElement = document.getElementById(`medico-select-${fatturaId}`) as HTMLSelectElement;
-                  const medicoId = Math.round(excelToNumber(selectElement?.value)) || 0;
-                  if (medicoId) {
-                    const medico = medici.find(m => m.id === medicoId);
-                    if (medico && confirm(`Confermi l'assegnazione di ${medico.nome} ${medico.cognome} a questa fattura?`)) {
-                      handleAssegnaMedicoSingolo(fatturaId, medicoId, `${medico.nome} ${medico.cognome}`);
-                    }
-                  } else {
-                    alert('Seleziona un medico prima di confermare');
-                  }
-                }}
-                className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
-              >
-                Conferma
-              </button>
-            </div>
-          )}
         </div>
       );
     }
@@ -968,39 +935,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
           <span className="px-1.5 py-0.5 text-xs font-bold text-gray-600 bg-gray-200 rounded-full">
             +{numeroAltre}
           </span>
-        )}
-        {anomaliaPrincipale === 'medico_mancante' && fatturaId && (
-          <div className="flex items-center gap-2">
-            <select
-              className="text-xs border border-gray-300 rounded px-2 py-1"
-              id={`medico-select-${fatturaId}`}
-              defaultValue=""
-            >
-              <option value="">Seleziona medico...</option>
-              {medici.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.nome} {m.cognome}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={() => {
-                const selectElement = document.getElementById(`medico-select-${fatturaId}`) as HTMLSelectElement;
-                const medicoId = Math.round(excelToNumber(selectElement?.value)) || 0;
-                if (medicoId) {
-                  const medico = medici.find(m => m.id === medicoId);
-                  if (medico && confirm(`Confermi l'assegnazione di ${medico.nome} ${medico.cognome} a questa fattura?`)) {
-                    handleAssegnaMedicoSingolo(fatturaId, medicoId, `${medico.nome} ${medico.cognome}`);
-                  }
-                } else {
-                  alert('Seleziona un medico prima di confermare');
-                }
-              }}
-              className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Conferma
-            </button>
-          </div>
         )}
       </div>
     );
@@ -1665,7 +1599,37 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             {fattura.medicoNome ? (
               <span className="text-gray-900 block truncate">{fattura.medicoNome}</span>
             ) : (
-              <span className="text-red-600 font-medium">Non assegnato</span>
+              <div className="flex items-center gap-2">
+                <select
+                  className="text-xs border border-gray-300 rounded px-2 py-1"
+                  id={`medico-select-${fattura.id}`}
+                  defaultValue=""
+                >
+                  <option value="">Seleziona medico...</option>
+                  {medici.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.nome} {m.cognome}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => {
+                    const selectElement = document.getElementById(`medico-select-${fattura.id}`) as HTMLSelectElement;
+                    const medicoId = Math.round(excelToNumber(selectElement?.value)) || 0;
+                    if (medicoId) {
+                      const medico = medici.find(m => m.id === medicoId);
+                      if (medico && confirm(`Confermi l'assegnazione di ${medico.nome} ${medico.cognome} a questa fattura?`)) {
+                        handleAssegnaMedicoSingolo(fattura.id, medicoId, `${medico.nome} ${medico.cognome}`);
+                      }
+                    } else {
+                      alert('Seleziona un medico prima di confermare');
+                    }
+                  }}
+                  className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
+                >
+                  ✓
+                </button>
+              </div>
             )}
           </td>
           <td className="w-28 px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
