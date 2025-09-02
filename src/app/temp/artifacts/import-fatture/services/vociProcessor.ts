@@ -50,60 +50,97 @@ export class VociProcessor {
   }
 
   /**
-   * Aggiorna prezzo e associa prestazione
-   */
-  static aggiornaPrezzoEAssociaPrestazione(
-    fattura: FatturaConVoci, 
-    voceId: number, 
-    nuovoPrezzo: number, 
-    codicePrestazione: string,
-    prestazioniMap: Record<string, any>,
-    prodottiMap: Record<string, any>
-  ): FatturaConVoci {
-    if (!fattura.voci) return fattura;
-    
-    const voci = fattura.voci.map(v => {
-      if (v.id === voceId) {
-        // Rimuovi anomalie usando AnomalieProcessor
-        let voceAggiornata = AnomalieProcessor.rimuoviAnomalieVoce(v, ['prodotto_orfano', 'prodotto_con_prezzo']);
-        return { 
-          ...voceAggiornata, 
-          importoNetto: nuovoPrezzo,
-          importoLordo: nuovoPrezzo * 1.22,
-          prestazioneAssociata: codicePrestazione
-        };
-      }
-      return v;
-    });
-    
-    // Usa AnomalieProcessor per ricalcolare tutto
-    return AnomalieProcessor.aggiornaFatturaCompleta(fattura, voci, prestazioniMap, prodottiMap);
-  }
-
-  /**
-   * Associa una prestazione a una voce
+   * Associa una prestazione a una voce (con gestione opzionale del prezzo)
+   * Se nuovoPrezzo è fornito e > 0, crea anche la voce prestazione con quel prezzo
    */
   static associaPrestazione(
     fattura: FatturaConVoci, 
     voceId: number, 
     codicePrestazione: string,
     prestazioniMap: Record<string, any>,
-    prodottiMap: Record<string, any>
+    prodottiMap: Record<string, any>,
+    nuovoPrezzo?: number
   ): FatturaConVoci {
     if (!fattura.voci) return fattura;
     
+    const prestazione = prestazioniMap[codicePrestazione];
+    if (!prestazione) return fattura;
+    
+    // Formatta il prezzo con due decimali se fornito
+    const prezzoFormattato = nuovoPrezzo ? parseFloat(nuovoPrezzo.toFixed(2)) : 0;
+    
+    // Trova la voce originale per verificare se è già una prestazione con prezzo
+    const voceOriginale = fattura.voci.find(v => v.id === voceId);
+    const isPrestazione = voceOriginale?.tipo === 'prestazione';
+    
+    // Se la voce è già una prestazione con prezzo, mantieni il prezzo formattato
+    if (isPrestazione && prezzoFormattato > 0) {
+      // Aggiorna solo l'associazione mantenendo il prezzo
+      const voci = fattura.voci.map(v => {
+        if (v.id === voceId) {
+          const voceSenzaAnomalie = AnomalieProcessor.rimuoviAnomalieVoce(v, ['prodotto_orfano']);
+          return {
+            ...voceSenzaAnomalie,
+            prestazionePadre: codicePrestazione,
+            importoNetto: prezzoFormattato,
+            importoLordo: prezzoFormattato * 1.22
+          };
+        }
+        return v;
+      });
+      
+      return AnomalieProcessor.aggiornaFatturaCompleta(fattura, voci, prestazioniMap, prodottiMap);
+    }
+    
+    // Se c'è un prezzo e non è già una prestazione, crea la nuova voce prestazione
+    if (prezzoFormattato > 0) {
+      const nuovaVocePrestazione: VoceFatturaEstesa = {
+        id: Date.now() + Math.random(),
+        codice: codicePrestazione,
+        descrizione: prestazione.descrizione,
+        tipo: 'prestazione',
+        importoNetto: prezzoFormattato,
+        importoLordo: prezzoFormattato * 1.22,
+        quantita: 1,
+        unita: 'prestazione',
+        anomalie: []
+      };
+      
+      // Aggiorna la voce prodotto esistente: associala alla prestazione
+      const vociAggiornate = fattura.voci.map(v => {
+        if (v.id === voceId) {
+          // Se il prodotto ha già un prezzo diverso da zero, mantienilo
+          const mantienIlPrezzo = v.importoNetto > 0;
+          const anomalieDaRimuovere = mantienIlPrezzo ? ['prodotto_orfano'] : ['prodotto_orfano', 'prodotto_con_prezzo'];
+          const voceSenzaAnomalie = AnomalieProcessor.rimuoviAnomalieVoce(v, anomalieDaRimuovere);
+          return {
+            ...voceSenzaAnomalie,
+            prestazionePadre: codicePrestazione,
+            importoNetto: mantienIlPrezzo ? parseFloat(v.importoNetto.toFixed(2)) : 0,
+            importoLordo: mantienIlPrezzo ? parseFloat(v.importoLordo.toFixed(2)) : 0
+          };
+        }
+        return v;
+      });
+      
+      // Aggiungi la nuova voce prestazione all'inizio
+      const vociComplete = [nuovaVocePrestazione, ...vociAggiornate];
+      
+      return AnomalieProcessor.aggiornaFatturaCompleta(fattura, vociComplete, prestazioniMap, prodottiMap);
+    }
+    
+    // Caso semplice: solo associa la prestazione senza modificare il prezzo
     const voci = fattura.voci.map(v => {
       if (v.id === voceId) {
         const voceAggiornata = AnomalieProcessor.rimuoviAnomalieVoce(v, 'prodotto_orfano');
         return { 
           ...voceAggiornata, 
-          prestazioneAssociata: codicePrestazione
+          prestazionePadre: codicePrestazione
         };
       }
       return v;
     });
     
-    // Usa AnomalieProcessor per ricalcolare tutto
     return AnomalieProcessor.aggiornaFatturaCompleta(fattura, voci, prestazioniMap, prodottiMap);
   }
 

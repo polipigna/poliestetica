@@ -14,14 +14,7 @@ interface UseVociManagementReturn {
   // Handlers per modifiche voci
   handleImpostaPrezzoZero: (fatture: FatturaConVoci[], fatturaId: number, voceId: number) => FatturaConVoci[];
   handleEliminaVoce: (fatture: FatturaConVoci[], fatturaId: number, voceId: number) => FatturaConVoci[];
-  handleAggiornaPrezzoEAssociaPrestazione: (
-    fatture: FatturaConVoci[], 
-    fatturaId: number, 
-    voceId: number, 
-    nuovoPrezzo: number, 
-    codicePrestazione: string
-  ) => FatturaConVoci[];
-  handleAssociaPrestazione: (fatture: FatturaConVoci[], fatturaId: number, voceId: number, codicePrestazione: string) => FatturaConVoci[];
+  handleAssociaPrestazione: (fatture: FatturaConVoci[], fatturaId: number, voceId: number, codicePrestazione: string, nuovoPrezzo?: number) => FatturaConVoci[];
   handleCorreggiUnita: (fatture: FatturaConVoci[], fatturaId: number, voceId: number, unitaCorretta: string) => FatturaConVoci[];
   handleCorreggiQuantita: (fatture: FatturaConVoci[], fatturaId: number, voceId: number, nuovaQuantita: number) => FatturaConVoci[];
   handleCorreggiCodice: (
@@ -61,25 +54,10 @@ export function useVociManagement(
     });
   };
 
-  const handleAggiornaPrezzoEAssociaPrestazione = (
-    fatture: FatturaConVoci[], 
-    fatturaId: number, 
-    voceId: number, 
-    nuovoPrezzo: number, 
-    codicePrestazione: string
-  ): FatturaConVoci[] => {
+  const handleAssociaPrestazione = (fatture: FatturaConVoci[], fatturaId: number, voceId: number, codicePrestazione: string, nuovoPrezzo?: number): FatturaConVoci[] => {
     return fatture.map(f => {
       if (f.id === fatturaId) {
-        return VociProcessor.aggiornaPrezzoEAssociaPrestazione(f, voceId, nuovoPrezzo, codicePrestazione, prestazioniMap, prodottiMap);
-      }
-      return f;
-    });
-  };
-
-  const handleAssociaPrestazione = (fatture: FatturaConVoci[], fatturaId: number, voceId: number, codicePrestazione: string): FatturaConVoci[] => {
-    return fatture.map(f => {
-      if (f.id === fatturaId) {
-        return VociProcessor.associaPrestazione(f, voceId, codicePrestazione, prestazioniMap, prodottiMap);
+        return VociProcessor.associaPrestazione(f, voceId, codicePrestazione, prestazioniMap, prodottiMap, nuovoPrezzo);
       }
       return f;
     });
@@ -149,7 +127,6 @@ export function useVociManagement(
     // Handlers
     handleImpostaPrezzoZero,
     handleEliminaVoce,
-    handleAggiornaPrezzoEAssociaPrestazione,
     handleAssociaPrestazione,
     handleCorreggiUnita,
     handleCorreggiQuantita,

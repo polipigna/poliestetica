@@ -120,8 +120,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   // Inizializza useVociManagement per il test incrementale
   const vociManagement = useVociManagement(prestazioniMap, prodottiMap);
   
-  // Flag per testare il nuovo sistema - CAMBIARE PER TESTARE
-  const USE_NEW_VOCI_SYSTEM = true;
 
   // Usa l'hook useExpanded per gestire lo stato delle fanontture espanse
   const { isExpanded: isFatturaExpanded, toggleExpanded } = useExpanded();
@@ -299,102 +297,22 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   };
 
   const handleAggiornaPrezzoEAssociaPrestazione = (fatturaId: number, voceId: number, nuovoPrezzo: number, codicePrestazione: string) => {
-    setFatture(fatture.map(f => {
-      if (f.id === fatturaId && f.voci) {
-        const prestazione = prestazioniMap[codicePrestazione];
-        if (!prestazione) return f;
-        
-        // Formatta il prezzo con due decimali
-        const prezzoFormattato = parseFloat(nuovoPrezzo.toFixed(2));
-        
-        // Trova la voce originale per verificare se è già una prestazione con prezzo
-        const voceOriginale = f.voci.find(v => v.id === voceId);
-        const isPrestazione = voceOriginale?.tipo === 'prestazione';
-        
-        // Se la voce è già una prestazione con prezzo, mantieni il prezzo formattato
-        if (isPrestazione && prezzoFormattato > 0) {
-          // Aggiorna solo l'associazione mantenendo il prezzo
-          const vociAggiornate = f.voci.map(v => {
-            if (v.id === voceId) {
-              const voceSenzaAnomalie = rimuoviAnomalieVoce(v, ['prodotto_orfano']);
-              return {
-                ...voceSenzaAnomalie,
-                prestazionePadre: codicePrestazione,
-                importoNetto: prezzoFormattato,
-                importoLordo: prezzoFormattato
-              };
-            }
-            return v;
-          });
-          
-          // Ricalcola tutte le anomalie
-          const vociConAnomalieRicalcolate = vociAggiornate.map(v => {
-            const anomalieVoce = verificaAnomalieVoce(v, vociAggiornate);
-            return { ...v, anomalie: anomalieVoce };
-          });
-          
-          const anomalieFattura = getAnomalieFattura({
-            ...f,
-            voci: vociConAnomalieRicalcolate
-          });
-          
-          return {
-            ...f,
-            voci: vociConAnomalieRicalcolate,
-            anomalie: anomalieFattura
-          };
-        }
-        
-        // Altrimenti crea la nuova voce prestazione con il prezzo inserito
-        const nuovaVocePrestazione: VoceFattura = {
-          id: Date.now() + Math.random(),
-          codice: codicePrestazione,
-          descrizione: prestazione.descrizione,
-          tipo: 'prestazione',
-          importoNetto: prezzoFormattato,
-          importoLordo: prezzoFormattato,
-          quantita: 1,
-          unita: 'prestazione',
-          anomalie: []
-        };
-        
-        // Aggiorna la voce prodotto esistente: associala alla prestazione
-        const vociAggiornate = f.voci.map(v => {
-          if (v.id === voceId) {
-            // Se il prodotto ha già un prezzo diverso da zero, mantienilo
-            const mantienIlPrezzo = v.importoNetto > 0;
-            const voceSenzaAnomalie = rimuoviAnomalieVoce(v, mantienIlPrezzo ? ['prodotto_orfano'] : ['prodotto_orfano', 'prodotto_con_prezzo']);
-            return {
-              ...voceSenzaAnomalie,
-              prestazionePadre: codicePrestazione,
-              importoNetto: mantienIlPrezzo ? parseFloat(v.importoNetto.toFixed(2)) : 0,
-              importoLordo: mantienIlPrezzo ? parseFloat(v.importoLordo.toFixed(2)) : 0
-            };
-          }
-          return v;
-        });
-        
-        // Aggiungi la nuova voce prestazione all'inizio
-        const vociComplete = [nuovaVocePrestazione, ...vociAggiornate];
-        
-        // Usa la funzione completa che gestisce anomalie e totali
-        const updatedFattura = aggiornaFatturaCompleta(f, vociComplete);
-        
-        if (onUpdateFattura) {
-          onUpdateFattura(fatturaId, updatedFattura);
-        }
-        
-        // Pulisci il prezzo temporaneo
-        setPrezzoTempProdottoOrfano(prev => {
-          const newState = { ...prev };
-          delete newState[`prezzo-${fatturaId}-${voceId}`];
-          return newState;
-        });
-        
-        return updatedFattura;
+    const nuoveFatture = vociManagement.handleAssociaPrestazione(fatture, fatturaId, voceId, codicePrestazione, nuovoPrezzo);
+    setFatture(nuoveFatture);
+    
+    if (onUpdateFattura) {
+      const fatturaAggiornata = nuoveFatture.find(f => f.id === fatturaId);
+      if (fatturaAggiornata) {
+        onUpdateFattura(fatturaId, fatturaAggiornata);
       }
-      return f;
-    }));
+    }
+    
+    // Pulisci il prezzo temporaneo
+    setPrezzoTempProdottoOrfano(prev => {
+      const newState = { ...prev };
+      delete newState[`prezzo-${fatturaId}-${voceId}`];
+      return newState;
+    });
   };
 
   const handleAssociaPrestazione = (fatturaId: number, voceId: number, codicePrestazione: string) => {

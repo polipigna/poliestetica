@@ -1,7 +1,6 @@
 import { useMemo, useCallback } from 'react';
 import { AnomalieCalculator, AnomalieProcessor } from '../services';
 import type { VoceFatturaEstesa, FatturaConVoci } from '../services';
-
 interface UseAnomalieReturn {
   verificaAnomalieVoce: (voce: VoceFatturaEstesa, voci: VoceFatturaEstesa[]) => string[];
   getAnomalieFattura: (fattura: FatturaConVoci) => string[];
