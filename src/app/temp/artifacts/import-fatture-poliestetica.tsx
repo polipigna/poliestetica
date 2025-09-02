@@ -37,10 +37,7 @@ import {
   excelToNumber,
   
   // Calculators
-  calculateTotaleImponibile,
-  calculateTotaleFattura,
-  calculateIva,
-  countAnomalieByType
+  calculateTotaleImponibile
 } from './import-fatture/utils';
 
 // Import dei services
@@ -57,6 +54,9 @@ import { useFileUpload } from './import-fatture/hooks/useFileUpload';
 import { useImportSummary } from './import-fatture/hooks/useImportSummary';
 import { useModalStates } from './import-fatture/hooks/useModalStates';
 import { usePagination } from './import-fatture/hooks/usePagination';
+import { useSelection } from './import-fatture/hooks/useSelection';
+import { useStatistiche } from './import-fatture/hooks/useStatistiche';
+import { useVistaRaggruppata } from './import-fatture/hooks/useVistaRaggruppata';
 
 // Le interfacce sono ora importate dai services
 
@@ -145,10 +145,23 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     resetFiltri
   } = useFattureFilter(fatture, getAnomalieFattura);
 
-  const [selectedFatture, setSelectedFatture] = useState<number[]>([]);
+  // Usa l'hook useSelection per gestire la selezione delle fatture
+  const {
+    selectedItems: selectedFatture,
+    toggleSelection: toggleFatturaSelection,
+    selectAll: selectAllFatture,
+    deselectAll: deselectAllFatture
+  } = useSelection();
   const [isImporting, setIsImporting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [vistaRaggruppata, setVistaRaggruppata] = useState(false);
+  
+  // Usa l'hook useVistaRaggruppata per gestire la vista raggruppata
+  const {
+    vistaRaggruppata,
+    toggleVistaRaggruppata,
+    fattureRaggruppatePerMedico,
+    medicoKeys
+  } = useVistaRaggruppata(fattureFiltered);
   
   // Hook per la gestione degli stati dei modal
   const modalStates = useModalStates();
@@ -206,6 +219,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
 
 
+  // Usa l'hook useStatistiche per calcolare statistiche e riepiloghi
+  const { statiCount, riepilogoMensile } = useStatistiche(fatture);
+
   // Verifica se import è consentito
   const canImportFattura = (fattura: FatturaConVoci): boolean => {
     if (!fattura.medicoId) return false;
@@ -213,29 +229,16 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     return anomalie.length === 0;
   };
 
-  // Calcola stati count sempre dalle fatture locali per avere i numeri aggiornati
-  const statiCount = useMemo(() => {
-    const anomalieByStato = fatture.map(f => ({ tipo: f.stato || 'da_importare' }));
-    return countAnomalieByType(anomalieByStato);
-  }, [fatture]);
-
 
   // Gestione selezione
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedFatture(fattureFiltered.filter(f => f.stato !== 'importata').map(f => f.id));
+      selectAllFatture(fattureFiltered.filter(f => f.stato !== 'importata').map(f => f.id));
     } else {
-      setSelectedFatture([]);
+      deselectAllFatture();
     }
   };
 
-  const handleSelectFattura = (id: number) => {
-    if (selectedFatture.includes(id)) {
-      setSelectedFatture(selectedFatture.filter(fId => fId !== id));
-    } else {
-      setSelectedFatture([...selectedFatture, id]);
-    }
-  };
 
   // Assegna medico
   const handleAssignMedico = (medicoId: number, medicoNome: string) => {
@@ -255,7 +258,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       return f;
     }));
     
-    setSelectedFatture([]);
+    deselectAllFatture();
     modalStates.setShowAssignMedico(false);
   };
 
@@ -863,7 +866,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       
       createImportSummary(count, nuove, aggiornate);
       modalStates.setShowImportSummary(true);
-      setSelectedFatture([]);
+      deselectAllFatture();
       setIsImporting(false);
     }, 1500);
   };
@@ -962,77 +965,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     setCurrentPage(1);
   }, [filtroStato, filtroAnomalia, filtroMedico, filtroSerie, filtroDataDa, filtroDataA, vistaRaggruppata]);
 
-  // Calcola riepilogo dati
-  const riepilogoMensile = useMemo(() => {
-    const totaleFatture = fatture.length;
-    const totaleImportate = fatture.filter(f => f.stato === 'importata').length;
-    
-    const totali = fatture.reduce((acc, f) => {
-      const imponibile = f.imponibile || 0;
-      const serie = f.serie || 'P';
-      
-      // Calcola IVA in base alla serie - Solo serie "IVA" ha l'IVA
-      const iva = (serie === 'IVA') ? imponibile * 0.22 : 0;
-      const lordo = calculateTotaleFattura(imponibile, iva);
-      
-      return {
-        imponibile: acc.imponibile + imponibile,
-        iva: acc.iva + iva,
-        lordo: acc.lordo + lordo
-      };
-    }, { imponibile: 0, iva: 0, lordo: 0 });
-    
-    // Riepilogo per medico
-    const perMedico = fatture.reduce((acc, f) => {
-      const medico = f.medicoNome || 'Non assegnato';
-      const imponibile = f.imponibile || 0;
-      const serie = f.serie || 'P';
-      
-      // Calcola IVA in base alla serie - Solo serie "IVA" ha l'IVA
-      const iva = (serie === 'IVA') ? imponibile * 0.22 : 0;
-      const lordo = calculateTotaleFattura(imponibile, iva);
-      
-      if (!acc[medico]) {
-        acc[medico] = { count: 0, imponibile: 0, iva: 0, lordo: 0 };
-      }
-      acc[medico].count++;
-      acc[medico].imponibile += imponibile;
-      acc[medico].iva += iva;
-      acc[medico].lordo += lordo;
-      return acc;
-    }, {} as Record<string, { count: number; imponibile: number; iva: number; lordo: number }>);
-    
-    // Riepilogo per serie
-    const perSerie = fatture.reduce((acc, f) => {
-      const serie = f.serie || 'P';
-      if (!acc[serie]) {
-        acc[serie] = { count: 0, imponibile: 0, iva: 0, lordo: 0 };
-      }
-      acc[serie].count++;
-      acc[serie].imponibile += f.imponibile || 0;
-      
-      // Solo serie "IVA" ha l'IVA 22%
-      if (serie === 'IVA') {
-        const ivaCalcolata = calculateIva(f.imponibile || 0, 22);
-        acc[serie].iva += ivaCalcolata;
-        acc[serie].lordo += (f.imponibile || 0) + ivaCalcolata;
-      } else {
-        // Serie P e M sono esenti IVA
-        acc[serie].iva += 0;
-        acc[serie].lordo += f.imponibile || 0; // Lordo = Imponibile per serie esente
-      }
-      
-      return acc;
-    }, {} as Record<string, { count: number; imponibile: number; iva: number; lordo: number }>);
-    
-    return {
-      totaleFatture,
-      totaleImportate,
-      totali,
-      perMedico,
-      perSerie
-    };
-  }, [fatture]);
 
   // Export functions
   const handleExportXLSX = () => {
@@ -1161,29 +1093,12 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   // Render table rows
   const renderTableRows = () => {
     if (vistaRaggruppata) {
-      // Vista raggruppata per medico su TUTTE le fatture filtrate
-      const fattureByMedico = fattureFiltered.reduce((acc: any, fattura) => {
-        const medicoKey = fattura.medicoNome || 'Non assegnato';
-        if (!acc[medicoKey]) {
-          acc[medicoKey] = [];
-        }
-        acc[medicoKey].push(fattura);
-        return acc;
-      }, {});
-      
-      // Ordina le chiavi mettendo "Non assegnato" per ultimo
-      const sortedKeys = Object.keys(fattureByMedico).sort((a, b) => {
-        if (a === 'Non assegnato') return 1;
-        if (b === 'Non assegnato') return -1;
-        return a.localeCompare(b);
-      });
-      
       // startIndex è già fornito dall'hook usePagination
       let currentIndex = 0;
       const rowsToRender: React.ReactNode[] = [];
       
-      for (const medicoNome of sortedKeys) {
-        const fattureGruppo = fattureByMedico[medicoNome];
+      for (const medicoNome of medicoKeys) {
+        const fattureGruppo = fattureRaggruppatePerMedico.get(medicoNome) || [];
         const gruppoTotale = fattureGruppo.length;
         
         // Header del gruppo sempre visibile se almeno una fattura del gruppo è nella pagina corrente
@@ -1573,7 +1488,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             <input
               type="checkbox"
               checked={selectedFatture.includes(fattura.id)}
-              onChange={() => handleSelectFattura(fattura.id)}
+              onChange={() => toggleFatturaSelection(fattura.id)}
               disabled={fattura.stato === 'importata' || hasAnomalie}
               className="rounded border-gray-300 text-[#03A6A6] focus:ring-[#03A6A6] disabled:opacity-50 disabled:cursor-not-allowed"
               title={hasAnomalie ? 'Non selezionabile - correggere anomalie prima dell\'importazione' : ''}
@@ -2317,7 +2232,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setVistaRaggruppata(!vistaRaggruppata)}
+                  onClick={toggleVistaRaggruppata}
                   className={`px-3 py-2 text-sm rounded-lg border flex items-center gap-2 ${
                     vistaRaggruppata 
                       ? 'bg-[#03A6A6] text-white border-[#03A6A6]' 

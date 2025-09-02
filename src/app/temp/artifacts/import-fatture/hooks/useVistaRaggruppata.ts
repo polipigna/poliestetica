@@ -31,7 +31,7 @@ export function useVistaRaggruppata(fattureFiltered: FatturaConVoci[]): UseVista
     });
     
     return grouped;
-  }, [fattureFiltered, vistaRaggruppata]); // Dipende anche da vistaRaggruppata per ricalcolo
+  }, [fattureFiltered]); // Dipende solo da fattureFiltered
 
   // Ottieni le chiavi ordinate (Non assegnato per ultimo)
   const medicoKeys = useMemo(() => {
