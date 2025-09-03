@@ -32,18 +32,15 @@ import {
   // Formatters
   formatDate,
   formatCurrency,
-  excelToNumber,
-  
-  // Calculators
-  calculateTotaleImponibile
+  excelToNumber
 } from './import-fatture/utils';
 
 // Import dei services
 import {
   type FatturaConVoci,
   type FieldMapping,
-  AnomalieProcessor,
-  ExportService
+  ExportService,
+  ImportService
 } from './import-fatture/services';
 
 // Import degli hooks
@@ -297,9 +294,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     setFatture(nuoveFatture);
     
     if (onUpdateFattura) {
-      const fatturaAggiornata = nuoveFatture.find(f => f.id === fatturaId);
-      if (fatturaAggiornata) {
-        onUpdateFattura(fatturaId, fatturaAggiornata);
+      const fatturaModificata = nuoveFatture.find(f => f.id === fatturaId);
+      if (fatturaModificata) {
+        onUpdateFattura(fatturaId, fatturaModificata);
       }
     }
     
@@ -316,9 +313,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     setFatture(nuoveFatture);
     
     if (onUpdateFattura) {
-      const fatturaAggiornata = nuoveFatture.find(f => f.id === fatturaId);
-      if (fatturaAggiornata) {
-        onUpdateFattura(fatturaId, fatturaAggiornata);
+      const fatturaModificata = nuoveFatture.find(f => f.id === fatturaId);
+      if (fatturaModificata) {
+        onUpdateFattura(fatturaId, fatturaModificata);
       }
     }
   };
@@ -337,9 +334,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     setFatture(nuoveFatture);
     
     if (onUpdateFattura) {
-      const fatturaAggiornata = nuoveFatture.find(f => f.id === fatturaId);
-      if (fatturaAggiornata) {
-        onUpdateFattura(fatturaId, fatturaAggiornata);
+      const fatturaModificata = nuoveFatture.find(f => f.id === fatturaId);
+      if (fatturaModificata) {
+        onUpdateFattura(fatturaId, fatturaModificata);
       }
     }
   };
@@ -350,9 +347,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     setFatture(nuoveFatture);
     
     if (onUpdateFattura) {
-      const fatturaAggiornata = nuoveFatture.find(f => f.id === fatturaId);
-      if (fatturaAggiornata) {
-        onUpdateFattura(fatturaId, fatturaAggiornata);
+      const fatturaModificata = nuoveFatture.find(f => f.id === fatturaId);
+      if (fatturaModificata) {
+        onUpdateFattura(fatturaId, fatturaModificata);
       }
     }
   };
@@ -397,9 +394,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     setFatture(nuoveFatture);
     
     if (onUpdateFattura) {
-      const fatturaAggiornata = nuoveFatture.find(f => f.id === fatturaId);
-      if (fatturaAggiornata) {
-        onUpdateFattura(fatturaId, fatturaAggiornata);
+      const fatturaModificata = nuoveFatture.find(f => f.id === fatturaId);
+      if (fatturaModificata) {
+        onUpdateFattura(fatturaId, fatturaModificata);
       }
     }
   };
@@ -410,9 +407,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     setFatture(nuoveFatture);
     
     if (onUpdateFattura) {
-      const fatturaAggiornata = nuoveFatture.find(f => f.id === fatturaId);
-      if (fatturaAggiornata) {
-        onUpdateFattura(fatturaId, fatturaAggiornata);
+      const fatturaModificata = nuoveFatture.find(f => f.id === fatturaId);
+      if (fatturaModificata) {
+        onUpdateFattura(fatturaId, fatturaModificata);
       }
     }
     
@@ -432,9 +429,9 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     setFatture(nuoveFatture);
     
     if (onUpdateFattura) {
-      const fatturaAggiornata = nuoveFatture.find(f => f.id === fatturaId);
-      if (fatturaAggiornata) {
-        onUpdateFattura(fatturaId, fatturaAggiornata);
+      const fatturaModificata = nuoveFatture.find(f => f.id === fatturaId);
+      if (fatturaModificata) {
+        onUpdateFattura(fatturaId, fatturaModificata);
       }
     }
     
@@ -462,49 +459,57 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   const handleImport = async () => {
     if (selectedFatture.length === 0) return;
     
-    // Verifica che tutte le fatture selezionate siano importabili
-    const fattureImportabili = selectedFatture.filter(id => {
-      const fattura = fatture.find(f => f.id === id);
-      return fattura && AnomalieProcessor.canImportFattura(fattura);
-    });
-
-    if (fattureImportabili.length === 0) {
-      alert('Nessuna fattura selezionata può essere importata. Verificare medico assegnato e anomalie.');
-      return;
-    }
-
-    if (fattureImportabili.length < selectedFatture.length) {
-      const nonImportabili = selectedFatture.length - fattureImportabili.length;
-      if (!confirm(`${nonImportabili} fatture non possono essere importate per anomalie. Importare solo le ${fattureImportabili.length} valide?`)) {
-        return;
-      }
-    }
-    
     setIsImporting(true);
     
-    // Simula import
-    setTimeout(() => {
-      if (onImport) {
-        onImport(fattureImportabili);
+    try {
+      // Usa ImportService per gestire l'import
+      const result = await ImportService.importaFattureSelezionate(
+        fatture,
+        selectedFatture,
+        { verificaAnomalie: true }
+      );
+      
+      // Gestisci warnings se presenti
+      if (result.warnings.length > 0) {
+        const warning = result.warnings[0];
+        if (warning.tipo === 'nessuna_selezione') {
+          alert(warning.message);
+          return;
+        }
+        
+        if (warning.tipo === 'non_importabile') {
+          if (result.summary.importate === 0) {
+            alert('Nessuna fattura selezionata può essere importata. Verificare medico assegnato e anomalie.');
+            return;
+          }
+          
+          if (!confirm(`${warning.message}. Importare solo le ${result.summary.importate} valide?`)) {
+            return;
+          }
+        }
       }
       
-      const count = fattureImportabili.length;
-      const fattureImportate = fatture.filter(f => fattureImportabili.includes(f.id));
-      const nuove = fattureImportate.filter(f => f.stato === 'da_importare').length;
-      const aggiornate = count - nuove;
+      // Aggiorna stato
+      setFatture(result.fattureAggiornate);
       
-      // Update stato fatture
-      setFatture(fatture.map(f => 
-        fattureImportabili.includes(f.id) 
-          ? { ...f, stato: 'importata' as const }
-          : f
-      ));
+      // Crea summary (rimuovi riferimento ad "aggiornate")
+      createImportSummary(
+        result.summary.importate,
+        result.summary.nuove,
+        0  // Non tracciamo più le "aggiornate"
+      );
       
-      createImportSummary(count, nuove, aggiornate);
       modalStates.setShowImportSummary(true);
       deselectAllFatture();
+      
+      // Callback opzionale con gli ID importati
+      if (onImport) {
+        onImport(result.summary.idImportati);
+      }
+      
+    } finally {
       setIsImporting(false);
-    }, 1500);
+    }
   };
 
   // Renderizza anomalie - mostra solo la principale con contatore (o tutte se showAll = true)
@@ -2193,9 +2198,11 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               </h3>
               <div className="mt-4 text-sm text-gray-600">
                 <p>{importSummary.count} fatture importate con successo</p>
-                <p className="mt-2">
-                  {importSummary.nuove} nuove • {importSummary.aggiornate} aggiornate
-                </p>
+                {importSummary.nuove > 0 && (
+                  <p className="mt-2">
+                    {importSummary.nuove} nuove fatture
+                  </p>
+                )}
               </div>
               <button
                 onClick={() => modalStates.setShowImportSummary(false)}
@@ -2220,9 +2227,11 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
               </h3>
               <div className="mt-4 text-sm text-gray-600">
                 <p>{syncSummary.totali} fatture sincronizzate</p>
-                <p className="mt-2">
-                  {syncSummary.nuove} nuove • {syncSummary.aggiornate} aggiornate
-                </p>
+                {syncSummary.nuove > 0 && (
+                  <p className="mt-2">
+                    {syncSummary.nuove} nuove fatture
+                  </p>
+                )}
               </div>
               <button
                 onClick={() => modalStates.setShowSyncSummary(false)}

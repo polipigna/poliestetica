@@ -10,3 +10,4 @@ export * from './vociProcessor';
 export * from './statisticheProcessor';
 export * from './prodottiMacchinariService';
 export * from './exportService';
+export * from './importService';
