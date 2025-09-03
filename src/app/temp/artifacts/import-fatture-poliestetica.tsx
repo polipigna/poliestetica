@@ -39,9 +39,11 @@ import {
 import {
   type FatturaConVoci,
   type FieldMapping,
+  type TipoAnomalia,
   ExportService,
   ImportService,
-  FattureProcessor
+  FattureProcessor,
+  AnomalieCalculator
 } from './import-fatture/services';
 
 // Import degli hooks
@@ -501,71 +503,146 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     }
   };
 
+  // UI Adapter per le anomalie
+  type UIConfig = {
+    label: string;
+    iconName: 'AlertCircle' | 'X' | 'Package' | 'AlertTriangle' | 'RefreshCw' | 'UserX';
+    colorToken: 'danger' | 'warning' | 'info' | 'secondary';
+  };
+
+  const getAnomaliaUI = (tipo: TipoAnomalia): UIConfig => {
+    const uiMap: Record<TipoAnomalia, UIConfig> = {
+      'codice_sconosciuto': { 
+        label: 'Codice non valido', 
+        iconName: 'X', 
+        colorToken: 'danger' 
+      },
+      'medico_mancante': { 
+        label: 'Medico mancante', 
+        iconName: 'UserX', 
+        colorToken: 'danger' 
+      },
+      'prestazione_incompleta': { 
+        label: 'Prodotti mancanti', 
+        iconName: 'Package', 
+        colorToken: 'warning' 
+      },
+      'prestazione_senza_macchinario': { 
+        label: 'Macchinario mancante', 
+        iconName: 'AlertTriangle', 
+        colorToken: 'warning' 
+      },
+      'unita_incompatibile': { 
+        label: 'Unità incompatibile', 
+        iconName: 'AlertTriangle', 
+        colorToken: 'info' 
+      },
+      'prodotto_con_prezzo': { 
+        label: 'Prodotto con prezzo', 
+        iconName: 'AlertTriangle', 
+        colorToken: 'warning' 
+      },
+      'prodotto_orfano': { 
+        label: 'Prodotto senza prestazione', 
+        iconName: 'AlertTriangle', 
+        colorToken: 'danger' 
+      },
+      'quantita_anomala': { 
+        label: 'Quantità anomala', 
+        iconName: 'AlertCircle', 
+        colorToken: 'warning' 
+      },
+      'prestazione_duplicata': { 
+        label: 'Prestazione duplicata', 
+        iconName: 'RefreshCw', 
+        colorToken: 'warning' 
+      }
+    };
+    
+    return uiMap[tipo];
+  };
+
+  const getColorClasses = (colorToken: string) => {
+    // Manteniamo i colori specifici attuali
+    const colorMap: Record<string, string> = {
+      'danger': 'text-red-700',
+      'warning': 'text-amber-600', 
+      'info': 'text-indigo-600',
+      'secondary': 'text-gray-600'
+    };
+    return colorMap[colorToken] || colorMap.secondary;
+  };
+
+  // Map specifico per i colori originali delle anomalie (per mantenere compatibilità)
+  const getSpecificColorForAnomalia = (tipo: TipoAnomalia): string => {
+    const colorMap: Record<TipoAnomalia, string> = {
+      'codice_sconosciuto': 'text-red-700',
+      'medico_mancante': 'text-red-600',
+      'prestazione_incompleta': 'text-orange-600',
+      'prestazione_senza_macchinario': 'text-yellow-600',
+      'unita_incompatibile': 'text-indigo-600',
+      'prodotto_con_prezzo': 'text-amber-600',
+      'prodotto_orfano': 'text-purple-600',
+      'quantita_anomala': 'text-pink-600',
+      'prestazione_duplicata': 'text-blue-600'
+    };
+    return colorMap[tipo];
+  };
+
   // Renderizza anomalie - mostra solo la principale con contatore (o tutte se showAll = true)
   const renderAnomalie = (anomalie: string[], fatturaId?: number, showAll: boolean = false) => {
-    const anomalieMap: Record<string, { label: string; color: string; icon: any; priority: number }> = {
-      'codice_sconosciuto': { label: 'Codice non valido', color: 'text-red-700', icon: X, priority: 1 },
-      'medico_mancante': { label: 'Medico mancante', color: 'text-red-600', icon: AlertCircle, priority: 2 },
-      'prestazione_incompleta': { label: 'Prodotti mancanti', color: 'text-orange-600', icon: Package, priority: 3 },
-      'prestazione_senza_macchinario': { label: 'Macchinario mancante', color: 'text-yellow-600', icon: AlertTriangle, priority: 4 },
-      'unita_incompatibile': { label: 'Unità incompatibile', color: 'text-indigo-600', icon: AlertTriangle, priority: 5 },
-      'prodotto_con_prezzo': { label: 'Prodotto con prezzo', color: 'text-amber-600', icon: AlertTriangle, priority: 6 },
-      'prodotto_orfano': { label: 'Prodotto senza prestazione', color: 'text-purple-600', icon: AlertTriangle, priority: 7 },
-      'quantita_anomala': { label: 'Quantità anomala', color: 'text-pink-600', icon: AlertCircle, priority: 8 },
-      'prestazione_duplicata': { label: 'Prestazione duplicata', color: 'text-blue-600', icon: RefreshCw, priority: 9 }
-    };
-
-    // Ordina le anomalie per priorità
-    const anomalieUniche = [...new Set(anomalie)];
-    const anomalieOrdinate = anomalieUniche.sort((a, b) => {
-      const priorityA = anomalieMap[a]?.priority || 999;
-      const priorityB = anomalieMap[b]?.priority || 999;
-      return priorityA - priorityB;
-    });
+    // Usa il service per ordinare (business logic)
+    const anomalieOrdinate = AnomalieCalculator.getAnomalieOrdinate(anomalie);
 
     if (anomalieOrdinate.length === 0) return null;
+
+    // Map icone string -> React components
+    const iconComponents = {
+      'AlertCircle': AlertCircle,
+      'X': X,
+      'Package': Package,
+      'AlertTriangle': AlertTriangle,
+      'RefreshCw': RefreshCw,
+      'UserX': UserX
+    };
+
+    // Render badge per singola anomalia
+    const renderBadge = (tipo: TipoAnomalia) => {
+      const uiConfig = getAnomaliaUI(tipo);
+      const Icon = iconComponents[uiConfig.iconName];
+      const color = getSpecificColorForAnomalia(tipo); // Usa i colori specifici originali
+      
+      return (
+        <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-gray-100 ${color} whitespace-nowrap`}>
+          <Icon className="w-3 h-3" />
+          {uiConfig.label}
+        </span>
+      );
+    };
 
     // Se showAll è true, mostra tutte le anomalie
     if (showAll) {
       return (
         <div className="flex flex-wrap gap-1">
-          {anomalieOrdinate.map((anomalia, idx) => {
-            const config = anomalieMap[anomalia];
-            if (!config) return null;
-            const Icon = config.icon;
-            return (
-              <span 
-                key={idx}
-                className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-gray-100 ${config.color} whitespace-nowrap`}
-              >
-                <Icon className="w-3 h-3" />
-                {config.label}
-              </span>
-            );
-          })}
+          {anomalieOrdinate.map((anomalia, idx) => (
+            <React.Fragment key={idx}>
+              {renderBadge(anomalia)}
+            </React.Fragment>
+          ))}
         </div>
       );
     }
 
     // Altrimenti mostra solo la principale con contatore
     const anomaliaPrincipale = anomalieOrdinate[0];
-    const config = anomalieMap[anomaliaPrincipale];
-    if (!config) return null;
-
-    const Icon = config.icon;
     const numeroAltre = anomalieOrdinate.length - 1;
 
     return (
       <div className="flex items-center gap-2">
-        <span 
-          className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-gray-100 ${config.color} whitespace-nowrap`}
-          title={anomalieOrdinate.map(a => anomalieMap[a]?.label || a).join(', ')}
-        >
-          <Icon className="w-3 h-3" />
-          {config.label}
-        </span>
+        {renderBadge(anomaliaPrincipale)}
         {numeroAltre > 0 && (
-          <span className="px-1.5 py-0.5 text-xs font-bold text-gray-600 bg-gray-200 rounded-full">
+          <span className="px-1.5 py-0.5 text-xs font-bold text-gray-600 bg-gray-200 rounded-full"
+                title={anomalieOrdinate.slice(1).map(a => getAnomaliaUI(a).label).join(', ')}>
             +{numeroAltre}
           </span>
         )}
@@ -781,65 +858,57 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
                                 }
                                 
                                 if (prestazioneSuggerita) {
-                                  const prestazione = prestazioniMap[prestazioneSuggerita];
                                   const prezzoKey = `prezzo-${fattura.id}-${voce.id}`;
                                   const prezzoTemp = prezzoTempProdottoOrfano[prezzoKey] ?? voce.importoNetto;
                                   
                                   return (
-                                    <div className="space-y-2">
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-xs text-gray-600">
-                                          Associa a: <strong>{prestazioneSuggerita}</strong> - {prestazione?.descrizione}
-                                        </span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-xs text-gray-600">
-                                          {voce.importoNetto > 0 ? 'Prezzo attuale:' : 'Prezzo:'}
-                                        </span>
-                                        <input
-                                          type="number"
-                                          min="0.01"
-                                          step="0.01"
-                                          value={prezzoTemp}
-                                          onChange={(e) => {
-                                            const nuovoPrezzo = excelToNumber(e.target.value);
-                                            setPrezzoTempProdottoOrfano(prev => ({
-                                              ...prev,
-                                              [prezzoKey]: nuovoPrezzo
-                                            }));
-                                          }}
-                                          className="w-20 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500"
-                                          placeholder="0.00"
-                                        />
-                                        <span className="text-xs text-gray-600">€</span>
-                                        {voce.importoNetto > 0 && prezzoTemp === voce.importoNetto && (
-                                          <span className="text-xs text-green-600">(mantieni prezzo)</span>
-                                        )}
-                                        <button
-                                          onClick={() => {
-                                            console.log('Correggi prodotto orfano:', { 
-                                              fatturaId: fattura.id, 
-                                              voceId: voce.id, 
-                                              prestazione: prestazioneSuggerita,
-                                              prezzo: prezzoTemp
-                                            });
-                                            // Se il prezzo è > 0, usa sempre handleAggiornaPrezzoEAssociaPrestazione
-                                            if (prezzoTemp > 0) {
-                                              handleAggiornaPrezzoEAssociaPrestazione(fattura.id, voce.id, prezzoTemp, prestazioneSuggerita);
-                                            } else {
-                                              handleAssociaPrestazione(fattura.id, voce.id, prestazioneSuggerita);
-                                            }
-                                          }}
-                                          disabled={prezzoTemp <= 0}
-                                          className={`px-2 py-1 text-xs rounded ${
-                                            prezzoTemp > 0 
-                                              ? 'bg-purple-600 text-white hover:bg-purple-700' 
-                                              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                          }`}
-                                        >
-                                          Correggi
-                                        </button>
-                                      </div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-xs text-gray-600">
+                                        Associa a: <strong>{prestazioneSuggerita}</strong>
+                                      </span>
+                                      <span className="text-xs text-gray-600">
+                                        Prezzo:
+                                      </span>
+                                      <input
+                                        type="number"
+                                        min="0.01"
+                                        step="0.01"
+                                        value={prezzoTemp}
+                                        onChange={(e) => {
+                                          const nuovoPrezzo = excelToNumber(e.target.value);
+                                          setPrezzoTempProdottoOrfano(prev => ({
+                                            ...prev,
+                                            [prezzoKey]: nuovoPrezzo
+                                          }));
+                                        }}
+                                        className="w-20 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                        placeholder="0.00"
+                                      />
+                                      <span className="text-xs text-gray-600">€</span>
+                                      <button
+                                        onClick={() => {
+                                          console.log('Correggi prodotto orfano:', { 
+                                            fatturaId: fattura.id, 
+                                            voceId: voce.id, 
+                                            prestazione: prestazioneSuggerita,
+                                            prezzo: prezzoTemp
+                                          });
+                                          // Se il prezzo è > 0, usa sempre handleAggiornaPrezzoEAssociaPrestazione
+                                          if (prezzoTemp > 0) {
+                                            handleAggiornaPrezzoEAssociaPrestazione(fattura.id, voce.id, prezzoTemp, prestazioneSuggerita);
+                                          } else {
+                                            handleAssociaPrestazione(fattura.id, voce.id, prestazioneSuggerita);
+                                          }
+                                        }}
+                                        disabled={prezzoTemp <= 0}
+                                        className={`px-2 py-1 text-xs rounded ${
+                                          prezzoTemp > 0 
+                                            ? 'bg-purple-600 text-white hover:bg-purple-700' 
+                                            : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                        }`}
+                                      >
+                                        Correggi
+                                      </button>
                                     </div>
                                   );
                                 } else {

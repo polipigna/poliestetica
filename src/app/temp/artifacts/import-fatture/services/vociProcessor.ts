@@ -158,7 +158,7 @@ export class VociProcessor {
     
     const voci = fattura.voci.map(v => {
       if (v.id === voceId) {
-        const voceAggiornata = AnomalieProcessor.rimuoviAnomalieVoce(v, 'unita_non_valida');
+        const voceAggiornata = AnomalieProcessor.rimuoviAnomalieVoce(v, 'unita_incompatibile');
         return { ...voceAggiornata, unita: unitaCorretta };
       }
       return v;
@@ -182,7 +182,7 @@ export class VociProcessor {
     
     const voci = fattura.voci.map(v => {
       if (v.id === voceId) {
-        const voceAggiornata = AnomalieProcessor.rimuoviAnomalieVoce(v, 'quantita_zero');
+        const voceAggiornata = AnomalieProcessor.rimuoviAnomalieVoce(v, 'quantita_anomala');
         const prezzoUnitario = v.importoNetto / (v.quantita || 1);
         const nuovoImporto = prezzoUnitario * nuovaQuantita;
         return { 
@@ -219,7 +219,7 @@ export class VociProcessor {
     const voci = fattura.voci.map(v => {
       if (v.id === voceId) {
         // Rimuovi anomalie correlate al codice e unità
-        let voceAggiornata = AnomalieProcessor.rimuoviAnomalieVoce(v, ['codice_sconosciuto', 'unita_non_valida']);
+        let voceAggiornata = AnomalieProcessor.rimuoviAnomalieVoce(v, ['codice_sconosciuto', 'unita_incompatibile']);
         
         const updates: any = { 
           codice: nuovoCodice
@@ -284,7 +284,7 @@ export class VociProcessor {
   }
 
   /**
-   * Conferma che una prestazione è completa (rimuove l'anomalia prodotti_mancanti)
+   * Conferma che una prestazione è completa (rimuove l'anomalia prestazione_incompleta)
    */
   static confermaPrestazioneCompleta(
     fattura: FatturaConVoci, 
@@ -296,7 +296,7 @@ export class VociProcessor {
     
     const voci = fattura.voci.map(v => {
       if (v.codice === prestazione) {
-        return AnomalieProcessor.rimuoviAnomalieVoce(v, 'prodotti_mancanti');
+        return AnomalieProcessor.rimuoviAnomalieVoce(v, 'prestazione_incompleta');
       }
       return v;
     });
@@ -318,7 +318,7 @@ export class VociProcessor {
     
     const voci = fattura.voci.map(v => {
       if (v.codice === prestazione) {
-        return AnomalieProcessor.rimuoviAnomalieVoce(v, 'macchinario_mancante');
+        return AnomalieProcessor.rimuoviAnomalieVoce(v, 'prestazione_senza_macchinario');
       }
       return v;
     });

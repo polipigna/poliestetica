@@ -41,6 +41,7 @@ export interface AnomaliaDettaglio {
   tipo: TipoAnomalia;
   descrizione: string;
   severity: 'error' | 'warning' | 'info';
+  workflowPriority: number; // 1 = più critico, 10 = meno critico
 }
 
 export class AnomalieCalculator {
@@ -49,48 +50,67 @@ export class AnomalieCalculator {
     medico_mancante: {
       tipo: 'medico_mancante',
       descrizione: 'Medico non assegnato alla fattura',
-      severity: 'error'
+      severity: 'error',
+      workflowPriority: 2
     },
     prestazione_incompleta: {
       tipo: 'prestazione_incompleta',
       descrizione: 'Prestazione che richiede prodotti ma non li ha',
-      severity: 'warning'
+      severity: 'warning',
+      workflowPriority: 3
     },
     prestazione_senza_macchinario: {
       tipo: 'prestazione_senza_macchinario',
       descrizione: 'Prestazione che richiede macchinario ma non lo ha',
-      severity: 'warning'
+      severity: 'warning',
+      workflowPriority: 4
     },
     prestazione_duplicata: {
       tipo: 'prestazione_duplicata',
       descrizione: 'Prestazione presente più volte nella stessa fattura',
-      severity: 'warning'
+      severity: 'warning',
+      workflowPriority: 9
     },
     prodotto_con_prezzo: {
       tipo: 'prodotto_con_prezzo',
       descrizione: 'Prodotto con prezzo non zero',
-      severity: 'warning'
+      severity: 'warning',
+      workflowPriority: 6
     },
     prodotto_orfano: {
       tipo: 'prodotto_orfano',
       descrizione: 'Prodotto senza prestazione padre associata',
-      severity: 'error'
+      severity: 'error',
+      workflowPriority: 7
     },
     unita_incompatibile: {
       tipo: 'unita_incompatibile',
       descrizione: 'Unità di misura non corrisponde al prodotto',
-      severity: 'warning'
+      severity: 'warning',
+      workflowPriority: 5
     },
     quantita_anomala: {
       tipo: 'quantita_anomala',
       descrizione: 'Quantità supera la soglia di anomalia',
-      severity: 'warning'
+      severity: 'warning',
+      workflowPriority: 8
     },
     codice_sconosciuto: {
       tipo: 'codice_sconosciuto',
       descrizione: 'Codice non riconosciuto nel sistema',
-      severity: 'error'
+      severity: 'error',
+      workflowPriority: 1
     }
+  };
+  
+  /**
+   * Mapping di alias per retrocompatibilità con ID anomalie non consistenti
+   */
+  private static readonly ANOMALY_ALIASES: Record<string, TipoAnomalia> = {
+    'unita_non_valida': 'unita_incompatibile',
+    'quantita_zero': 'quantita_anomala',
+    'prodotti_mancanti': 'prestazione_incompleta',
+    'macchinario_mancante': 'prestazione_senza_macchinario'
   };
   
   /**
@@ -289,10 +309,62 @@ export class AnomalieCalculator {
   }
   
   /**
+   * Type guard per verificare se una stringa è un TipoAnomalia valido
+   */
+  static isValidAnomalia(value: string): value is TipoAnomalia {
+    return value in this.DESCRIZIONI_ANOMALIE;
+  }
+  
+  /**
+   * Normalizza un'anomalia gestendo alias e ID non consistenti
+   */
+  static normalizeAnomalia(raw: string): TipoAnomalia | null {
+    // Prima controlla se è già valida
+    if (this.isValidAnomalia(raw)) return raw;
+    
+    // Poi controlla gli alias
+    const normalized = this.ANOMALY_ALIASES[raw];
+    return normalized && this.isValidAnomalia(normalized) ? normalized : null;
+  }
+  
+  /**
+   * Ordina le anomalie per severity e workflowPriority
+   */
+  static getAnomalieOrdinate(anomalie: string[]): TipoAnomalia[] {
+    // Normalizza e filtra anomalie valide
+    const normalized = anomalie
+      .map(a => this.normalizeAnomalia(a))
+      .filter((a): a is TipoAnomalia => a !== null);
+    
+    // Rimuove duplicati
+    const unique = [...new Set(normalized)];
+    
+    // Ordina per severity, poi priority, poi alfabetico
+    return unique.sort((a, b) => {
+      const detA = this.DESCRIZIONI_ANOMALIE[a];
+      const detB = this.DESCRIZIONI_ANOMALIE[b];
+      
+      // 1. Severity (error > warning > info)
+      const severityOrder: Record<string, number> = { error: 0, warning: 1, info: 2 };
+      const severityDiff = severityOrder[detA.severity] - severityOrder[detB.severity];
+      if (severityDiff !== 0) return severityDiff;
+      
+      // 2. Workflow priority
+      if (detA.workflowPriority !== detB.workflowPriority) {
+        return detA.workflowPriority - detB.workflowPriority;
+      }
+      
+      // 3. Alphabetical (deterministic fallback)
+      return a.localeCompare(b);
+    });
+  }
+  
+  /**
    * Ottiene la descrizione dettagliata di un'anomalia
    */
   static getDescrizioneAnomalia(tipo: string): AnomaliaDettaglio | undefined {
-    return this.DESCRIZIONI_ANOMALIE[tipo as TipoAnomalia];
+    const normalized = this.normalizeAnomalia(tipo);
+    return normalized ? this.DESCRIZIONI_ANOMALIE[normalized] : undefined;
   }
   
   /**
