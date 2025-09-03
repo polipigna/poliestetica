@@ -9,3 +9,4 @@ export * from './fattureProcessor';
 export * from './vociProcessor';
 export * from './statisticheProcessor';
 export * from './prodottiMacchinariService';
+export * from './exportService';

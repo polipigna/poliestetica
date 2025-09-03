@@ -19,7 +19,6 @@ import {
   Info,
   Calendar
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import type { Medico, Prestazione, Prodotto, VoceFattura, Macchinario } from '@/data/mock';
 import { 
   parseCodiceFattura, 
@@ -33,7 +32,6 @@ import {
   // Formatters
   formatDate,
   formatCurrency,
-  toSlug,
   excelToNumber,
   
   // Calculators
@@ -44,7 +42,8 @@ import {
 import {
   type FatturaConVoci,
   type FieldMapping,
-  AnomalieProcessor
+  AnomalieProcessor,
+  ExportService
 } from './import-fatture/services';
 
 // Import degli hooks
@@ -605,64 +604,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   // Export functions
   const handleExportXLSX = () => {
-    // Prepara i dati per l'export - tutte le voci delle fatture filtrate
-    const exportData: any[] = [];
-    
-    fattureFiltered.forEach(fattura => {
-      if (!fattura.voci) return;
-      
-      fattura.voci.forEach(voce => {
-        exportData.push({
-          'Numero Fattura': fattura.numero || '',
-          'Serie': fattura.serie || '',
-          'Data Emissione': fattura.dataEmissione || fattura.data || '',
-          'Cliente': fattura.clienteNome || fattura.paziente || '',
-          'Medico': fattura.medicoNome || '',
-          'Stato Fattura': fattura.stato || '',
-          'Codice': voce.codice || '',
-          'Descrizione': voce.descrizione || '',
-          'Tipo': voce.tipo || '',
-          'Quantità': voce.quantita || 0,
-          'Unità': voce.unita || '',
-          'Importo Netto': voce.importoNetto || 0,
-          'Importo Lordo': voce.importoLordo || 0,
-          'Anomalie': voce.anomalie ? voce.anomalie.join(', ') : ''
-        });
-      });
-    });
-    
-    // Crea un nuovo workbook
-    const wb = XLSX.utils.book_new();
-    
-    // Crea un worksheet dai dati
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    
-    // Imposta le larghezze delle colonne
-    const columnWidths = [
-      { wch: 15 }, // Numero Fattura
-      { wch: 8 },  // Serie
-      { wch: 12 }, // Data
-      { wch: 25 }, // Cliente
-      { wch: 20 }, // Medico
-      { wch: 15 }, // Stato
-      { wch: 20 }, // Codice
-      { wch: 35 }, // Descrizione
-      { wch: 12 }, // Tipo
-      { wch: 10 }, // Quantità
-      { wch: 10 }, // Unità
-      { wch: 12 }, // Importo Netto
-      { wch: 12 }, // Importo Lordo
-      { wch: 30 }  // Anomalie
-    ];
-    ws['!cols'] = columnWidths;
-    
-    // Aggiungi il worksheet al workbook
-    XLSX.utils.book_append_sheet(wb, ws, 'Voci Fatture');
-    
-    // Genera il file e scaricalo
-    const timestamp = toSlug(new Date().toISOString());
-    const fileName = `export_voci_fatture_${timestamp}.xlsx`;
-    XLSX.writeFile(wb, fileName);
+    ExportService.exportVociToExcel(fattureFiltered);
   };
 
   // Funzione non utilizzata - commentata
