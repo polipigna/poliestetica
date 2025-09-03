@@ -11,59 +11,29 @@ export class AnomalieProcessor {
   
   /**
    * Ricalcola tutte le anomalie di una fattura
+   * Entry point principale che delega il calcolo core ad AnomalieCalculator
+   * e aggiunge la gestione dello stato della fattura
    */
   static ricalcolaAnomalieFattura(
     fattura: FatturaConVoci,
     prestazioniMap: Record<string, any>,
     prodottiMap: Record<string, any>
   ): FatturaConVoci {
-    // Prima calcola le anomalie per ogni voce
-    const vociConAnomalie = fattura.voci ? fattura.voci.map(voce => {
-      const anomalieVoce = AnomalieCalculator.verificaAnomalieVoce(
-        voce, 
-        fattura.voci || [], 
-        prestazioniMap, 
-        prodottiMap
-      );
-      return { ...voce, anomalie: anomalieVoce };
-    }) : [];
-    
-    // Ora calcola le anomalie della fattura basandosi sulle voci aggiornate
-    const anomalieEsistenti: string[] = [];
-    
-    if (!fattura.medicoId) {
-      anomalieEsistenti.push('medico_mancante');
-    }
-    
-    // Raccogli anomalie dalle voci
-    vociConAnomalie.forEach(voce => {
-      if (voce.anomalie && voce.anomalie.length > 0) {
-        anomalieEsistenti.push(...voce.anomalie);
-      }
-    });
-    
-    // Verifica prestazioni duplicate a livello fattura
-    const codiciPrestazioni = vociConAnomalie
-      .filter(v => v.tipo === 'prestazione')
-      .map(v => v.codice);
-    
-    const hasDuplicati = codiciPrestazioni.some((codice, index) => 
-      codiciPrestazioni.indexOf(codice) !== index
+    // Delega il calcolo delle anomalie ad AnomalieCalculator
+    const fatturaConAnomalie = AnomalieCalculator.ricalcolaAnomalieFattura(
+      fattura,
+      prestazioniMap,
+      prodottiMap
     );
     
-    if (hasDuplicati) {
-      anomalieEsistenti.push('prestazione_duplicata');
-    }
-    
-    const anomalieUniche = [...new Set(anomalieEsistenti)];
+    // Gestione dello stato basato sulle anomalie calcolate
+    const anomalieUniche = fatturaConAnomalie.anomalie || [];
     const stato = anomalieUniche.length > 0 ? 'anomalia' : 
                   (fattura.stato === 'importata' ? 'importata' : 'da_importare');
     
     return { 
-      ...fattura, 
-      voci: vociConAnomalie, 
-      stato: stato as any, 
-      anomalie: anomalieUniche 
+      ...fatturaConAnomalie,
+      stato: stato as any
     };
   }
 

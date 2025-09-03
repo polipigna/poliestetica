@@ -222,7 +222,7 @@ export class AnomalieCalculator {
     }
     
     // Analizza voci
-    if (fattura.voci.length > 0) {
+    if (fattura.voci && fattura.voci.length > 0) {
       // Verifica prestazioni duplicate
       const codiciPrestazioni = fattura.voci
         .filter(v => v.tipo === 'prestazione')
@@ -255,8 +255,8 @@ export class AnomalieCalculator {
     prodottiMap: Record<string, Prodotto>
   ): FatturaConVoci {
     // Prima calcola le anomalie per ogni voce
-    const vociConAnomalie = fattura.voci.map(voce => {
-      const anomalieVoce = this.verificaAnomalieVoce(voce, fattura.voci, prestazioniMap, prodottiMap);
+    const vociConAnomalie = (fattura.voci || []).map(voce => {
+      const anomalieVoce = this.verificaAnomalieVoce(voce, fattura.voci || [], prestazioniMap, prodottiMap);
       return {
         ...voce,
         anomalie: anomalieVoce

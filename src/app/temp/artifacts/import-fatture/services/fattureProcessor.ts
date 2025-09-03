@@ -17,7 +17,7 @@ import {
   type Macchinario
 } from '@/data/mock';
 import type { VoceFatturaEstesa, FatturaConVoci } from './anomalieCalculator';
-import { AnomalieCalculator } from './anomalieCalculator';
+import { AnomalieProcessor } from './anomalieProcessor';
 
 export interface FieldMapping {
   numero?: string;
@@ -182,17 +182,12 @@ export class FattureProcessor {
         anomalie: []
       };
       
-      // Calcola anomalie
-      const fatturaConAnomalie = AnomalieCalculator.ricalcolaAnomalieFattura(
+      // Calcola anomalie e gestisce lo stato tramite AnomalieProcessor
+      const fatturaConAnomalie = AnomalieProcessor.ricalcolaAnomalieFattura(
         fattura,
         prestazioniMap,
         prodottiMap
       );
-      
-      // Aggiorna stato se ci sono anomalie
-      if (fatturaConAnomalie.anomalie && fatturaConAnomalie.anomalie.length > 0) {
-        fatturaConAnomalie.stato = 'anomalia';
-      }
       
       fatturaIndex++;
       return fatturaConAnomalie;
