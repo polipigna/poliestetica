@@ -115,6 +115,12 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   // Inizializza useVociManagement per il test incrementale
   const vociManagement = useVociManagement(prestazioniMap, prodottiMap);
+  const { 
+    quantitaTemp, 
+    setQuantitaTemp,
+    prezzoTempProdottoOrfano,
+    setPrezzoTempProdottoOrfano 
+  } = vociManagement;
   
   // Inizializza useProdottiMacchinari per gestire prodotti e macchinari mancanti
   const prodottiMacchinariManagement = useProdottiMacchinari(prestazioniMap, prodottiMap, macchinari);
@@ -210,8 +216,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     modalStates.setShowImportDialog(false);
     modalStates.setShowMappingModal(true);
   };
-  const [quantitaTemp, setQuantitaTemp] = useState<{ [key: string]: number }>({});
-  const [prezzoTempProdottoOrfano, setPrezzoTempProdottoOrfano] = useState<{ [key: string]: number }>({});
   const [filtroRiepilogoMedico, setFiltroRiepilogoMedico] = useState('tutti');
   const [filtroRiepilogoSerie, setFiltroRiepilogoSerie] = useState('tutte');
 
@@ -435,6 +439,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       }
     }
     
+
     modalStates.setShowCorreggiCodiceModal(null);
   };
 

@@ -8,8 +8,8 @@ interface UseVociManagementReturn {
   prezzoTempProdottoOrfano: { [key: string]: number };
   
   // Setters
-  setQuantitaTemp: (quantita: { [key: string]: number }) => void;
-  setPrezzoTempProdottoOrfano: (prezzi: { [key: string]: number }) => void;
+  setQuantitaTemp: React.Dispatch<React.SetStateAction<{ [key: string]: number }>>;
+  setPrezzoTempProdottoOrfano: React.Dispatch<React.SetStateAction<{ [key: string]: number }>>;
   
   // Handlers per modifiche voci
   handleImpostaPrezzoZero: (fatture: FatturaConVoci[], fatturaId: number, voceId: number) => FatturaConVoci[];
