@@ -1,7 +1,6 @@
 import { useState } from 'react';
 
 interface ModalStates {
-  showAssignMedico: boolean;
   showImportDialog: boolean;
   showMappingModal: boolean;
   showImportSummary: boolean;
@@ -13,14 +12,12 @@ interface ModalStates {
 
 interface UseModalStatesReturn extends ModalStates {
   // Toggle functions
-  toggleAssignMedico: () => void;
   toggleImportDialog: () => void;
   toggleMappingModal: () => void;
   toggleImportSummary: () => void;
   toggleSyncSummary: () => void;
   
   // Set functions
-  setShowAssignMedico: (show: boolean) => void;
   setShowImportDialog: (show: boolean) => void;
   setShowMappingModal: (show: boolean) => void;
   setShowImportSummary: (show: boolean) => void;
@@ -34,7 +31,6 @@ interface UseModalStatesReturn extends ModalStates {
 }
 
 export function useModalStates(): UseModalStatesReturn {
-  const [showAssignMedico, setShowAssignMedico] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showMappingModal, setShowMappingModal] = useState(false);
   const [showImportSummary, setShowImportSummary] = useState(false);
@@ -44,7 +40,6 @@ export function useModalStates(): UseModalStatesReturn {
   const [showCorreggiCodiceModal, setShowCorreggiCodiceModal] = useState<{ fatturaId: number; voceId: number; codiceAttuale: string } | null>(null);
 
   // Toggle functions
-  const toggleAssignMedico = () => setShowAssignMedico(!showAssignMedico);
   const toggleImportDialog = () => setShowImportDialog(!showImportDialog);
   const toggleMappingModal = () => setShowMappingModal(!showMappingModal);
   const toggleImportSummary = () => setShowImportSummary(!showImportSummary);
@@ -52,7 +47,6 @@ export function useModalStates(): UseModalStatesReturn {
 
   // Close all modals
   const closeAllModals = () => {
-    setShowAssignMedico(false);
     setShowImportDialog(false);
     setShowMappingModal(false);
     setShowImportSummary(false);
@@ -64,7 +58,6 @@ export function useModalStates(): UseModalStatesReturn {
 
   return {
     // States
-    showAssignMedico,
     showImportDialog,
     showMappingModal,
     showImportSummary,
@@ -74,14 +67,12 @@ export function useModalStates(): UseModalStatesReturn {
     showCorreggiCodiceModal,
     
     // Toggle functions
-    toggleAssignMedico,
     toggleImportDialog,
     toggleMappingModal,
     toggleImportSummary,
     toggleSyncSummary,
     
     // Set functions
-    setShowAssignMedico,
     setShowImportDialog,
     setShowMappingModal,
     setShowImportSummary,

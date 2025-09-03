@@ -40,7 +40,8 @@ import {
   type FatturaConVoci,
   type FieldMapping,
   ExportService,
-  ImportService
+  ImportService,
+  FattureProcessor
 } from './import-fatture/services';
 
 // Import degli hooks
@@ -109,8 +110,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     getAnomalieFattura, 
     ricalcolaAnomalieFattura,
     getUnitaCorretta,
-    isUnitaCorregibile,
-    aggiornaFatturaCompleta
+    isUnitaCorregibile
   } = anomalieHelper;
 
   // Inizializza useVociManagement per il test incrementale
@@ -242,35 +242,19 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   };
 
 
-  // Assegna medico
-  const handleAssignMedico = (medicoId: number, medicoNome: string) => {
-    setFatture(fatture.map(f => {
-      if (selectedFatture.includes(f.id)) {
-        // Aggiorna la fattura con il nuovo medico
-        const fatturaConMedico = { ...f, medicoId, medicoNome };
-        // Usa la funzione completa per ricalcolare anomalie e totali
-        const updatedFattura = aggiornaFatturaCompleta(fatturaConMedico, fatturaConMedico.voci);
-        
-        if (onUpdateFattura) {
-          onUpdateFattura(f.id, updatedFattura);
-        }
-        
-        return updatedFattura;
-      }
-      return f;
-    }));
-    
-    deselectAllFatture();
-    modalStates.setShowAssignMedico(false);
-  };
 
   // Assegna medico singolo (per anomalia)
   const handleAssegnaMedicoSingolo = (fatturaId: number, medicoId: number, medicoNome: string) => {
     setFatture(fatture.map(f => {
       if (f.id === fatturaId) {
-        // Aggiorna la fattura con il nuovo medico e ricalcola tutto per consistenza
-        const fatturaConMedico = { ...f, medicoId, medicoNome };
-        const updatedFattura = aggiornaFatturaCompleta(fatturaConMedico, fatturaConMedico.voci);
+        // Usa FattureProcessor per assegnare il medico e ricalcolare
+        const updatedFattura = FattureProcessor.assegnaMedicoAFattura(
+          f,
+          medicoId,
+          medicoNome,
+          prestazioniMap,
+          prodottiMap
+        );
         
         if (onUpdateFattura) {
           onUpdateFattura(fatturaId, updatedFattura);
@@ -2164,32 +2148,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
 
       {/* Modals */}
-      {modalStates.showAssignMedico && (
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Assegna medico a {selectedFatture.length} fatture
-            </h3>
-            <div className="space-y-3">
-              {medici.map(m => (
-                <button
-                  key={m.id}
-                  onClick={() => handleAssignMedico(m.id, `${m.nome} ${m.cognome}`)}
-                  className="w-full text-left px-4 py-3 rounded-lg border border-gray-200 hover:bg-gray-50 hover:border-[#03A6A6] transition-colors"
-                >
-                  <span className="font-medium">{m.nome} {m.cognome}</span>
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => modalStates.setShowAssignMedico(false)}
-              className="mt-4 w-full px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-            >
-              Annulla
-            </button>
-          </div>
-        </div>
-      )}
 
       {modalStates.showImportSummary && importSummary && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">

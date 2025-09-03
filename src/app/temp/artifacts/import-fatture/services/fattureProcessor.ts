@@ -368,6 +368,41 @@ export class FattureProcessor {
   }
   
   /**
+   * Assegna un medico a una fattura e ricalcola anomalie
+   * @param fattura La fattura a cui assegnare il medico
+   * @param medicoId ID del medico da assegnare
+   * @param medicoNome Nome del medico da assegnare
+   * @param prestazioniMap Mappa delle prestazioni per ricalcolo anomalie
+   * @param prodottiMap Mappa dei prodotti per ricalcolo anomalie
+   * @returns La fattura aggiornata con medico e anomalie ricalcolate
+   */
+  static assegnaMedicoAFattura(
+    fattura: FatturaConVoci,
+    medicoId: number,
+    medicoNome: string,
+    prestazioniMap: Record<string, Prestazione>,
+    prodottiMap: Record<string, Prodotto>
+  ): FatturaConVoci {
+    // Assegna il medico alla fattura
+    const fatturaConMedico = {
+      ...fattura,
+      medicoId,
+      medicoNome
+    };
+    
+    // Usa AnomalieProcessor per ricalcolare anomalie e totali
+    // Questo rimuoverà automaticamente l'anomalia "medico_mancante"
+    const fatturaAggiornata = AnomalieProcessor.aggiornaFatturaCompleta(
+      fatturaConMedico,
+      fatturaConMedico.voci,
+      prestazioniMap,
+      prodottiMap
+    );
+    
+    return fatturaAggiornata;
+  }
+  
+  /**
    * Calcola statistiche per medico
    */
   static calcolaStatistichePerMedico(fatture: FatturaConVoci[]): Array<{
