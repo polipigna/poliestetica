@@ -43,7 +43,8 @@ import {
 // Import dei services
 import {
   type FatturaConVoci,
-  type FieldMapping
+  type FieldMapping,
+  AnomalieProcessor
 } from './import-fatture/services';
 
 // Import degli hooks
@@ -229,12 +230,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
   // Usa l'hook useStatistiche per calcolare statistiche e riepiloghi
   const { statiCount, riepilogoMensile } = useStatistiche(fatture);
 
-  // Verifica se import è consentito
-  const canImportFattura = (fattura: FatturaConVoci): boolean => {
-    if (!fattura.medicoId) return false;
-    const anomalie = getAnomalieFattura(fattura);
-    return anomalie.length === 0;
-  };
 
 
   // Gestione selezione
@@ -471,7 +466,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     // Verifica che tutte le fatture selezionate siano importabili
     const fattureImportabili = selectedFatture.filter(id => {
       const fattura = fatture.find(f => f.id === id);
-      return fattura && canImportFattura(fattura);
+      return fattura && AnomalieProcessor.canImportFattura(fattura);
     });
 
     if (fattureImportabili.length === 0) {
