@@ -2,6 +2,8 @@
  * Funzioni di calcolo per l'import delle fatture
  */
 
+import { ALIQUOTA_IVA_STANDARD } from '../constants';
+
 /**
  * Calcola l'imponibile totale da un array di voci
  */
@@ -82,6 +84,50 @@ export const calculatePrezzoUnitario = (totale: number, quantita: number): numbe
   if (!totale || !quantita) return 0;
   
   return totale / quantita;
+};
+
+/**
+ * Calcola il lordo da netto e aliquota IVA
+ * Formula: lordo = netto * (1 + aliquota/100)
+ * @param netto Importo netto
+ * @param aliquota Aliquota IVA (default: 22%)
+ */
+export const calculateLordo = (
+  netto: number,
+  aliquota: number = ALIQUOTA_IVA_STANDARD
+): number => {
+  if (!netto) return 0;
+  return netto * (1 + aliquota / 100);
+};
+
+/**
+ * Calcola il netto da lordo e aliquota IVA
+ * Formula: netto = lordo / (1 + aliquota/100)
+ * @param lordo Importo lordo
+ * @param aliquota Aliquota IVA (default: 22%)
+ */
+export const calculateNettoFromLordo = (
+  lordo: number,
+  aliquota: number = ALIQUOTA_IVA_STANDARD
+): number => {
+  if (!lordo) return 0;
+  return lordo / (1 + aliquota / 100);
+};
+
+/**
+ * Calcola l'IVA con aliquota standard (22%)
+ * Funzione helper per evitare di passare sempre l'aliquota
+ */
+export const calculateIvaStandard = (imponibile: number): number => {
+  return calculateIva(imponibile, ALIQUOTA_IVA_STANDARD);
+};
+
+/**
+ * Calcola il lordo con aliquota standard (22%)
+ * Funzione helper per evitare di passare sempre l'aliquota
+ */
+export const calculateLordoStandard = (netto: number): number => {
+  return calculateLordo(netto, ALIQUOTA_IVA_STANDARD);
 };
 
 /**

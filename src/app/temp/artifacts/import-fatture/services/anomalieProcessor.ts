@@ -5,7 +5,8 @@
 
 import { AnomalieCalculator } from './anomalieCalculator';
 import type { FatturaConVoci, VoceFatturaEstesa } from './anomalieCalculator';
-import { calculateTotaleImponibile, calculateIva } from '../utils';
+import { calculateTotaleImponibile, calculateIvaStandard } from '../utils';
+import { SERIE_CON_IVA } from '../constants';
 
 export class AnomalieProcessor {
   
@@ -128,9 +129,8 @@ export class AnomalieProcessor {
     );
     
     // Determina se la fattura ha IVA - gestisce vari casi
-    const hasIva = fattura.conIva || fattura.iva > 0 || fattura.serie === 'IVA';
-    const aliquotaIva = 22; // Aliquota IVA standard al 22%
-    const iva = hasIva ? calculateIva(totaleImponibile, aliquotaIva) : 0;
+    const hasIva = fattura.conIva || fattura.iva > 0 || SERIE_CON_IVA.includes(fattura.serie as any);
+    const iva = hasIva ? calculateIvaStandard(totaleImponibile) : 0;
     
     // Ritorna la fattura completa con tutti i campi preservati
     return {

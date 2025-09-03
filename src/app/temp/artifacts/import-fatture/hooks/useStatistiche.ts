@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
-import { countAnomalieByType, calculateTotaleFattura, calculateIva } from '../utils';
+import { countAnomalieByType, calculateTotaleFattura, calculateIvaStandard } from '../utils';
 import type { FatturaConVoci } from '../services';
+import { SERIE_CON_IVA } from '../constants';
 
 interface UseStatisticheReturn {
   statiCount: Record<string, number>;
@@ -34,8 +35,8 @@ export function useStatistiche(fatture: FatturaConVoci[]): UseStatisticheReturn 
       const imponibile = f.imponibile || 0;
       const serie = f.serie || 'P';
       
-      // Calcola IVA in base alla serie - Solo serie "IVA" ha l'IVA
-      const iva = (serie === 'IVA') ? imponibile * 0.22 : 0;
+      // Calcola IVA in base alla serie - Solo serie con IVA applicano l'aliquota
+      const iva = SERIE_CON_IVA.includes(serie as any) ? calculateIvaStandard(imponibile) : 0;
       const lordo = calculateTotaleFattura(imponibile, iva);
       
       return {
@@ -51,8 +52,8 @@ export function useStatistiche(fatture: FatturaConVoci[]): UseStatisticheReturn 
       const imponibile = f.imponibile || 0;
       const serie = f.serie || 'P';
       
-      // Calcola IVA in base alla serie - Solo serie "IVA" ha l'IVA
-      const iva = (serie === 'IVA') ? imponibile * 0.22 : 0;
+      // Calcola IVA in base alla serie - Solo serie con IVA applicano l'aliquota
+      const iva = SERIE_CON_IVA.includes(serie as any) ? calculateIvaStandard(imponibile) : 0;
       const lordo = calculateTotaleFattura(imponibile, iva);
       
       if (!acc[medico]) {
@@ -74,9 +75,9 @@ export function useStatistiche(fatture: FatturaConVoci[]): UseStatisticheReturn 
       acc[serie].count++;
       acc[serie].imponibile += f.imponibile || 0;
       
-      // Solo serie "IVA" ha l'IVA 22%
-      if (serie === 'IVA') {
-        const ivaCalcolata = calculateIva(f.imponibile || 0, 22);
+      // Solo serie con IVA applicano l'aliquota
+      if (SERIE_CON_IVA.includes(serie as any)) {
+        const ivaCalcolata = calculateIvaStandard(f.imponibile || 0);
         acc[serie].iva += ivaCalcolata;
         acc[serie].lordo += (f.imponibile || 0) + ivaCalcolata;
       } else {

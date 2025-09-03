@@ -5,6 +5,7 @@
 
 import { AnomalieProcessor } from './anomalieProcessor';
 import type { FatturaConVoci, VoceFatturaEstesa } from './anomalieCalculator';
+import { calculateLordoStandard } from '../utils/calculators';
 
 export class VociProcessor {
   
@@ -83,7 +84,7 @@ export class VociProcessor {
             ...voceSenzaAnomalie,
             prestazionePadre: codicePrestazione,
             importoNetto: prezzoFormattato,
-            importoLordo: prezzoFormattato * 1.22
+            importoLordo: calculateLordoStandard(prezzoFormattato)
           };
         }
         return v;
@@ -100,7 +101,7 @@ export class VociProcessor {
         descrizione: prestazione.descrizione,
         tipo: 'prestazione',
         importoNetto: prezzoFormattato,
-        importoLordo: prezzoFormattato * 1.22,
+        importoLordo: calculateLordoStandard(prezzoFormattato),
         quantita: 1,
         unita: 'prestazione',
         anomalie: []
@@ -189,7 +190,7 @@ export class VociProcessor {
           ...voceAggiornata, 
           quantita: nuovaQuantita,
           importoNetto: nuovoImporto,
-          importoLordo: nuovoImporto * 1.22
+          importoLordo: calculateLordoStandard(nuovoImporto)
         };
       }
       return v;
@@ -260,7 +261,7 @@ export class VociProcessor {
         // Gestione del prezzo
         if (nuovoPrezzo !== undefined) {
           updates.importoNetto = nuovoPrezzo;
-          updates.importoLordo = nuovoPrezzo * 1.22;
+          updates.importoLordo = calculateLordoStandard(nuovoPrezzo);
         }
         
         // Se cambia la quantità (e non è già stata gestita sopra)
@@ -270,7 +271,7 @@ export class VociProcessor {
           if (nuovoPrezzo === undefined && v.quantita && v.quantita > 0) {
             const prezzoUnitario = v.importoNetto / v.quantita;
             updates.importoNetto = prezzoUnitario * nuovaQuantita;
-            updates.importoLordo = updates.importoNetto * 1.22;
+            updates.importoLordo = calculateLordoStandard(updates.importoNetto);
           }
         }
         
