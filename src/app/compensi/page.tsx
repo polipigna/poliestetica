@@ -2,7 +2,7 @@
 
 import { useFatture } from '@/hooks/useFatture';
 import { medici } from '@/data/mock';
-import CalcolaCompensi from '../temp/artifacts/calcola-compensi-poliestetica (1)';
+import CalcolaCompensi from '@/features/calcolo-compensi/CalcolaCompensi';
 
 export default function CompensiPage() {
   const { fatture, isLoading } = useFatture();

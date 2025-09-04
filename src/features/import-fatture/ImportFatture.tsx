@@ -33,7 +33,7 @@ import {
   formatDate,
   formatCurrency,
   excelToNumber
-} from './import-fatture/utils';
+} from './utils';
 
 // Import dei services
 import {
@@ -44,21 +44,21 @@ import {
   ImportService,
   FattureProcessor,
   AnomalieCalculator
-} from './import-fatture/services';
+} from './services';
 
 // Import degli hooks
-import { useAnomalie } from './import-fatture/hooks/useAnomalie';
-import { useVociManagement } from './import-fatture/hooks/useVociManagement';
-import { useProdottiMacchinari } from './import-fatture/hooks/useProdottiMacchinari';
-import { useExpanded } from './import-fatture/hooks/useExpanded';
-import { useFattureFilter } from './import-fatture/hooks/useFattureFilter';
-import { useFileUpload } from './import-fatture/hooks/useFileUpload';
-import { useImportSummary } from './import-fatture/hooks/useImportSummary';
-import { useModalStates } from './import-fatture/hooks/useModalStates';
-import { usePagination } from './import-fatture/hooks/usePagination';
-import { useSelection } from './import-fatture/hooks/useSelection';
-import { useStatistiche } from './import-fatture/hooks/useStatistiche';
-import { useVistaRaggruppata } from './import-fatture/hooks/useVistaRaggruppata';
+import { useAnomalie } from './hooks/useAnomalie';
+import { useVociManagement } from './hooks/useVociManagement';
+import { useProdottiMacchinari } from './hooks/useProdottiMacchinari';
+import { useExpanded } from './hooks/useExpanded';
+import { useFattureFilter } from './hooks/useFattureFilter';
+import { useFileUpload } from './hooks/useFileUpload';
+import { useImportSummary } from './hooks/useImportSummary';
+import { useModalStates } from './hooks/useModalStates';
+import { usePagination } from './hooks/usePagination';
+import { useSelection } from './hooks/useSelection';
+import { useStatistiche } from './hooks/useStatistiche';
+import { useVistaRaggruppata } from './hooks/useVistaRaggruppata';
 
 // Le interfacce sono ora importate dai services
 

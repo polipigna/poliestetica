@@ -1,7 +1,7 @@
 'use client';
 
 import { medici as mediciData, mediciRegoleCosti } from '@/data/mock';
-import GestioneMedici from '@/app/temp/artifacts/gestione-medici-v4';
+import GestioneMedici from '@/features/gestione-medici/GestioneMedici';
 
 export default function MediciPage() {
   return (

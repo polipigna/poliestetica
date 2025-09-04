@@ -2,15 +2,13 @@
 
 import { useFatture } from '@/hooks/useFatture';
 import { medici, prestazioni, prodotti } from '@/data/mock';
-import ImportFatture from '../temp/artifacts/import-fatture-poliestetica';
+import ImportFatture from '@/features/import-fatture/ImportFatture';
 
 export default function ImportPage() {
   const { 
     fatture, 
     isLoading,
-    updateFattura,
-    getConteggiStati,
-    regenerate
+    updateFattura
   } = useFatture();
 
   if (isLoading) {
@@ -23,8 +21,6 @@ export default function ImportPage() {
       </div>
     );
   }
-
-  const conteggi = getConteggiStati();
 
   // Handler per sync
   const handleSync = () => {
@@ -49,10 +45,8 @@ export default function ImportPage() {
       prodotti={prodotti}
       isLoading={isLoading}
       onUpdateFattura={updateFattura}
-      conteggiStati={conteggi}
       onSync={handleSync}
       onImport={handleImport}
-      onRegenerate={regenerate}
     />
   );
 }
