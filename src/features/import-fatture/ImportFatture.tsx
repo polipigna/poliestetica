@@ -6,18 +6,13 @@ import {
   ChevronRight,
   ChevronLeft,
   AlertCircle,
-  Upload,
   Plus,
-  ChevronDown,
-  ChevronUp,
   Package,
   AlertTriangle,
-  Users,
   UserX,
-  FileSpreadsheet,
-  FileUp,
   Info,
-  Calendar
+  Calendar,
+  FileSpreadsheet
 } from 'lucide-react';
 import type { Medico, Prestazione, Prodotto, VoceFattura, Macchinario } from '@/data/mock';
 import { 
@@ -30,7 +25,6 @@ import {
 // Import delle utility functions
 import {
   // Formatters
-  formatDate,
   formatCurrency,
   excelToNumber
 } from './utils';
@@ -59,6 +53,12 @@ import { usePagination } from './hooks/usePagination';
 import { useSelection } from './hooks/useSelection';
 import { useStatistiche } from './hooks/useStatistiche';
 import { useVistaRaggruppata } from './hooks/useVistaRaggruppata';
+
+// Import dei componenti estratti
+import StatisticheDashboard from './components/StatisticheDashboard';
+import FiltriToolbar from './components/FiltriToolbar';
+import FatturaRow from './components/FatturaRow';
+import RiepilogoMensile from './components/RiepilogoMensile';
 
 // Le interfacce sono ora importate dai services
 
@@ -218,8 +218,6 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
     modalStates.setShowImportDialog(false);
     modalStates.setShowMappingModal(true);
   };
-  const [filtroRiepilogoMedico, setFiltroRiepilogoMedico] = useState('tutti');
-  const [filtroRiepilogoSerie, setFiltroRiepilogoSerie] = useState('tutte');
 
   // Mock stati
   const lastSync = '15 minuti fa';
@@ -1111,110 +1109,34 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
 
   // Render singola riga fattura
   const renderFatturaRow = (fattura: FatturaConVoci, indented = false) => {
-    // Usa le anomalie già presenti nella fattura se esistono
     const anomalie = fattura.anomalie && fattura.anomalie.length > 0 
       ? fattura.anomalie 
       : getAnomalieFattura(fattura);
     const hasAnomalie = anomalie.length > 0;
     const isExpanded = isFatturaExpanded(fattura.id);
+    const isSelected = selectedFatture.includes(fattura.id);
     
-    // Debug: verifica coerenza stato/anomalie
     if (fattura.stato === 'anomalia' && !hasAnomalie) {
       console.warn(`Fattura ${fattura.numero} ha stato 'anomalia' ma nessuna anomalia rilevata`);
     }
     
     return (
-      <React.Fragment key={fattura.id}>
-        <tr className={`hover:bg-gray-50 ${indented ? 'pl-8' : ''}`}>
-          <td className="w-12 px-6 py-4 whitespace-nowrap">
-            <input
-              type="checkbox"
-              checked={selectedFatture.includes(fattura.id)}
-              onChange={() => toggleFatturaSelection(fattura.id)}
-              disabled={fattura.stato === 'importata' || hasAnomalie}
-              className="rounded border-gray-300 text-[#03A6A6] focus:ring-[#03A6A6] disabled:opacity-50 disabled:cursor-not-allowed"
-              title={hasAnomalie ? 'Non selezionabile - correggere anomalie prima dell\'importazione' : ''}
-            />
-          </td>
-          <td className="w-24 px-6 py-4 whitespace-nowrap text-sm">
-            <div className="flex items-center gap-2">
-              <span className="font-medium text-gray-900 truncate">{fattura.numero}</span>
-              {fattura.serie !== 'principale' && (
-                <span className="px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-700">
-                  {fattura.serie}
-                </span>
-              )}
-            </div>
-          </td>
-          <td className="w-28 px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-            {fattura.data || (fattura.dataEmissione ? formatDate(new Date(fattura.dataEmissione)) : '')}
-          </td>
-          <td className="w-40 px-6 py-4 text-sm text-gray-900">
-            <span className="block truncate">{fattura.paziente || fattura.clienteNome || ''}</span>
-          </td>
-          <td className="w-40 px-6 py-4 text-sm">
-            {fattura.medicoNome ? (
-              <span className="text-gray-900 block truncate">{fattura.medicoNome}</span>
-            ) : (
-              <div className="flex items-center gap-2">
-                <select
-                  className="text-xs border border-gray-300 rounded px-2 py-1"
-                  id={`medico-select-${fattura.id}`}
-                  defaultValue=""
-                >
-                  <option value="">Seleziona medico...</option>
-                  {medici.map(m => (
-                    <option key={m.id} value={m.id}>
-                      {m.nome} {m.cognome}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => {
-                    const selectElement = document.getElementById(`medico-select-${fattura.id}`) as HTMLSelectElement;
-                    const medicoId = Math.round(excelToNumber(selectElement?.value)) || 0;
-                    if (medicoId) {
-                      const medico = medici.find(m => m.id === medicoId);
-                      if (medico && confirm(`Confermi l'assegnazione di ${medico.nome} ${medico.cognome} a questa fattura?`)) {
-                        handleAssegnaMedicoSingolo(fattura.id, medicoId, `${medico.nome} ${medico.cognome}`);
-                      }
-                    } else {
-                      alert('Seleziona un medico prima di confermare');
-                    }
-                  }}
-                  className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
-                >
-                  ✓
-                </button>
-              </div>
-            )}
-          </td>
-          <td className="w-28 px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-            {formatCurrency(fattura.imponibile)}
-          </td>
-          <td className="w-20 px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-            {fattura.serie === 'IVA' ? formatCurrency(fattura.iva || 0) : '-'}
-          </td>
-          <td className="w-28 px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-            {formatCurrency(fattura.totale)}
-          </td>
-          <td className="w-32 px-6 py-4 whitespace-nowrap">
-            {renderStatoBadge(fattura.stato || 'da_importare')}
-          </td>
-          <td className="w-48 px-6 py-4">
-            {hasAnomalie && renderAnomalie(anomalie, fattura.id)}
-          </td>
-          <td className="w-16 px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-            <button
-              onClick={() => toggleExpanded(fattura.id)}
-              className="text-[#03A6A6] hover:text-[#028a8a]"
-            >
-              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </button>
-          </td>
-        </tr>
-        {isExpanded && renderVociDettagli(fattura)}
-      </React.Fragment>
+      <FatturaRow
+        key={fattura.id}
+        fattura={fattura}
+        indented={indented}
+        isExpanded={isExpanded}
+        isSelected={isSelected}
+        hasAnomalie={hasAnomalie}
+        anomalie={anomalie}
+        medici={medici}
+        onToggleExpand={() => toggleExpanded(fattura.id)}
+        onToggleSelect={() => toggleFatturaSelection(fattura.id)}
+        onAssegnaMedico={handleAssegnaMedicoSingolo}
+        renderStatoBadge={renderStatoBadge}
+        renderAnomalie={renderAnomalie}
+        renderVociDettagli={renderVociDettagli}
+      />
     );
   };
 
@@ -1693,245 +1615,39 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
         </div>
       </div>
 
-      {/* Stati Overview */}
-      <div className="px-6 py-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <button
-            onClick={() => setFiltroStato('tutti')}
-            className={`p-4 rounded-lg border ${
-              filtroStato === 'tutti' ? 'border-[#03A6A6] bg-[#03A6A6]/5' : 'border-gray-200 bg-white'
-            } hover:border-[#03A6A6] transition-all`}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-600">Tutte le fatture</span>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                {fatture.length}
-              </span>
-            </div>
-          </button>
-          {[
-            { key: 'da_importare', label: 'Da importare', color: 'bg-gray-100 text-gray-800' },
-            { key: 'anomalia', label: 'Con anomalie', color: 'bg-red-100 text-red-800' },
-            { key: 'importata', label: 'Importate', color: 'bg-blue-100 text-blue-800' }
-          ].map(stato => {
-            const count = (statiCount as any)[stato.key] || 0;
-            return (
-              <button
-                key={stato.key}
-                onClick={() => setFiltroStato(stato.key)}
-                className={`p-4 rounded-lg border ${
-                  filtroStato === stato.key ? 'border-[#03A6A6] bg-[#03A6A6]/5' : 'border-gray-200 bg-white'
-                } hover:border-[#03A6A6] transition-all`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-600">{stato.label}</span>
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${stato.color}`}>
-                    {count}
-                  </span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-        
-        {/* Riepilogo Anomalie */}
-        {(() => {
-          const riepilogoAnomalie: Record<string, number> = {};
-          fattureFiltered.forEach(fattura => {
-            const anomalie = getAnomalieFattura(fattura);
-            anomalie.forEach(anomalia => {
-              riepilogoAnomalie[anomalia] = (riepilogoAnomalie[anomalia] || 0) + 1;
-            });
-          });
-          
-          if (Object.keys(riepilogoAnomalie).length === 0) return null;
-          
-          const anomalieConfig: Record<string, { label: string; color: string; icon: any }> = {
-            'medico_mancante': { label: 'Medico non assegnato', color: 'text-red-600', icon: UserX },
-            'prodotto_con_prezzo': { label: 'Prodotto con prezzo', color: 'text-amber-600', icon: AlertCircle },
-            'prestazione_incompleta': { label: 'Prestazione senza prodotti', color: 'text-orange-600', icon: Package },
-            'prestazione_senza_macchinario': { label: 'Prestazione senza macchinario', color: 'text-yellow-600', icon: AlertTriangle },
-            'prodotto_orfano': { label: 'Prodotto senza prestazione', color: 'text-purple-600', icon: AlertTriangle },
-            'codice_sconosciuto': { label: 'Codice non valido', color: 'text-red-700', icon: X },
-            'prestazione_duplicata': { label: 'Prestazione duplicata', color: 'text-blue-600', icon: RefreshCw },
-            'unita_incompatibile': { label: 'Unità incompatibile', color: 'text-indigo-600', icon: AlertTriangle },
-            'quantita_anomala': { label: 'Quantità anomala', color: 'text-pink-600', icon: AlertCircle }
-          };
-          
-          return (
-            <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
-              <h3 className="text-sm font-medium text-red-800 mb-2">Anomalie Rilevate</h3>
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(riepilogoAnomalie).map(([anomalia, count]) => {
-                  const config = anomalieConfig[anomalia];
-                  if (!config) return null;
-                  const Icon = config.icon;
-                  return (
-                    <button
-                      key={anomalia}
-                      onClick={() => {
-                        if (filtroAnomalia === anomalia) {
-                          setFiltroAnomalia('tutte');
-                        } else {
-                          setFiltroAnomalia(anomalia);
-                        }
-                      }}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors ${
-                        filtroAnomalia === anomalia 
-                          ? 'bg-white border-2 border-red-400 shadow-sm' 
-                          : 'bg-white hover:bg-gray-50 border border-gray-200'
-                      }`}
-                    >
-                      <Icon className={`w-4 h-4 ${config.color}`} />
-                      <span className="text-gray-700">{config.label}</span>
-                      <span className="font-bold text-gray-900">{count}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })()}
-      </div>
+      {/* Statistiche Dashboard */}
+      <StatisticheDashboard
+        fatture={fatture}
+        fattureFiltered={fattureFiltered}
+        statiCount={statiCount}
+        filtroStato={filtroStato}
+        filtroAnomalia={filtroAnomalia}
+        setFiltroStato={setFiltroStato}
+        setFiltroAnomalia={setFiltroAnomalia}
+        getAnomalieFattura={getAnomalieFattura}
+      />
 
-      {/* Filters and Actions */}
-      <div className="px-6 pb-4">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-          <div className="flex flex-col gap-4">
-            {/* Prima riga: Filtri principali */}
-            <div className="flex items-center gap-3 flex-wrap">
-<select
-                value={filtroMedico}
-                onChange={(e) => setFiltroMedico(e.target.value)}
-                className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
-              >
-                <option value="tutti">Tutti i medici</option>
-                <option value="non_assegnato">Non assegnato</option>
-                {medici.map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.nome} {m.cognome}
-                  </option>
-                ))}
-              </select>
-              
-              <select
-                value={filtroSerie}
-                onChange={(e) => setFiltroSerie(e.target.value)}
-                className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
-              >
-                <option value="tutte">Tutte le serie</option>
-                <option value="P">Serie P (Principale)</option>
-                <option value="IVA">Serie IVA</option>
-                <option value="M">Serie M (Milano)</option>
-              </select>
-              
-              <div className="flex items-center gap-2">
-                <input
-                  type="date"
-                  value={filtroDataDa}
-                  onChange={(e) => {
-                    const newDataDa = e.target.value;
-                    setFiltroDataDa(newDataDa);
-                    // Se data da è dopo data a, resetta data a
-                    if (filtroDataA && newDataDa > filtroDataA) {
-                      setFiltroDataA('');
-                    }
-                  }}
-                  max={filtroDataA || undefined}
-                  className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
-                  placeholder="Data da"
-                />
-                <span className="text-gray-500">-</span>
-                <input
-                  type="date"
-                  value={filtroDataA}
-                  onChange={(e) => {
-                    const newDataA = e.target.value;
-                    setFiltroDataA(newDataA);
-                    // Se data a è prima di data da, resetta data da
-                    if (filtroDataDa && newDataA < filtroDataDa) {
-                      setFiltroDataDa('');
-                    }
-                  }}
-                  min={filtroDataDa || undefined}
-                  className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
-                  placeholder="Data a"
-                />
-              </div>
-              
-              {filtriAttivi > 0 && (
-                <button
-                  onClick={resetFiltri}
-                  className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-2"
-                >
-                  <X className="w-4 h-4" />
-                  Reset filtri ({filtriAttivi})
-                </button>
-              )}
-            </div>
-            
-            {/* Seconda riga: Azioni e vista */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={toggleVistaRaggruppata}
-                  className={`px-3 py-2 text-sm rounded-lg border flex items-center gap-2 ${
-                    vistaRaggruppata 
-                      ? 'bg-[#03A6A6] text-white border-[#03A6A6]' 
-                      : 'bg-white text-gray-700 border-gray-300'
-                  } hover:border-[#03A6A6] transition-colors`}
-                >
-                  <Users className="w-4 h-4" />
-                  Raggruppa per medico
-                </button>
-              </div>
-            
-            <div className="flex items-center gap-2">
-              {/* Pulsanti Import/Export sempre visibili */}
-              <button
-                onClick={() => modalStates.setShowImportDialog(true)}
-                className="px-3 py-2 text-sm bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2"
-                title="Importa dati da file Excel"
-              >
-                <FileUp className="w-4 h-4" />
-                Import
-              </button>
-              
-              <button
-                onClick={handleExportXLSX}
-                className="px-3 py-2 text-sm bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2"
-                title="Esporta voci fatture filtrate in Excel"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                Export
-              </button>
-              
-              {/* Separatore */}
-              {selectedFatture.length > 0 && (
-                <div className="h-6 w-px bg-gray-300 mx-2" />
-              )}
-              
-              {/* Azioni per selezione */}
-              {selectedFatture.length > 0 && (
-                <>
-                  <span className="text-sm text-gray-600 mr-2">
-                    {selectedFatture.length} selezionate
-                  </span>
-                  <button
-                    onClick={handleImport}
-                    disabled={isImporting}
-                    className="px-4 py-2 text-sm bg-[#03A6A6] text-white rounded-lg hover:bg-[#028a8a] disabled:opacity-50"
-                  >
-                    <Upload className="w-4 h-4 inline mr-2" />
-                    {isImporting ? 'Importazione...' : 'Importa selezionate'}
-                  </button>
-                </>
-              )}
-            </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Filtri Toolbar */}
+      <FiltriToolbar
+        filtroMedico={filtroMedico}
+        filtroSerie={filtroSerie}
+        filtroDataDa={filtroDataDa}
+        filtroDataA={filtroDataA}
+        filtriAttivi={filtriAttivi}
+        vistaRaggruppata={vistaRaggruppata}
+        selectedFatture={selectedFatture}
+        isImporting={isImporting}
+        medici={medici}
+        setFiltroMedico={setFiltroMedico}
+        setFiltroSerie={setFiltroSerie}
+        setFiltroDataDa={setFiltroDataDa}
+        setFiltroDataA={setFiltroDataA}
+        resetFiltri={resetFiltri}
+        toggleVistaRaggruppata={toggleVistaRaggruppata}
+        handleImport={handleImport}
+        handleExportXLSX={handleExportXLSX}
+        setShowImportDialog={modalStates.setShowImportDialog}
+      />
 
       {/* Table */}
       <div className="px-6">
@@ -2067,153 +1783,7 @@ const ImportFatture: React.FC<ImportFattureProps> = ({
       </div>
 
       {/* Riepilogo Mensile */}
-      <div className="px-6 py-6">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6">Riepilogo Mensile</h3>
-          
-          {/* Totali Generali */}
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Totale Fatture</p>
-                  <p className="text-2xl font-bold text-gray-900">{riepilogoMensile.totaleFatture}</p>
-                </div>
-                <div className="p-3 bg-gray-200 rounded-full">
-                  <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-blue-50 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-blue-600">Importate</p>
-                  <p className="text-2xl font-bold text-blue-900">{riepilogoMensile.totaleImportate}</p>
-                </div>
-                <div className="p-3 bg-blue-200 rounded-full">
-                  <Check className="w-6 h-6 text-blue-600" />
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-green-50 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-green-600">Imponibile</p>
-                  <p className="text-2xl font-bold text-green-900">{formatCurrency(riepilogoMensile.totali.imponibile)}</p>
-                </div>
-                <div className="p-3 bg-green-200 rounded-full">
-                  <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-yellow-50 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-yellow-600">IVA</p>
-                  <p className="text-2xl font-bold text-yellow-900">{formatCurrency(riepilogoMensile.totali.iva)}</p>
-                </div>
-                <div className="p-3 bg-yellow-200 rounded-full">
-                  <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-purple-50 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-purple-600">Lordo Totale</p>
-                  <p className="text-2xl font-bold text-purple-900">{formatCurrency(riepilogoMensile.totali.lordo)}</p>
-                </div>
-                <div className="p-3 bg-purple-200 rounded-full">
-                  <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          {/* Filtri Riepilogo */}
-          <div className="flex gap-4 mb-4">
-            <select
-              value={filtroRiepilogoMedico}
-              onChange={(e) => setFiltroRiepilogoMedico(e.target.value)}
-              className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
-            >
-              <option value="tutti">Tutti i medici</option>
-              {Object.keys(riepilogoMensile.perMedico).map(medico => (
-                <option key={medico} value={medico}>{medico}</option>
-              ))}
-            </select>
-            
-            <select
-              value={filtroRiepilogoSerie}
-              onChange={(e) => setFiltroRiepilogoSerie(e.target.value)}
-              className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
-            >
-              <option value="tutte">Tutte le serie</option>
-              {Object.keys(riepilogoMensile.perSerie).map(serie => (
-                <option key={serie} value={serie}>Serie {serie}</option>
-              ))}
-            </select>
-          </div>
-          
-          {/* Riepilogo Dettagliato */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Per Medico */}
-            <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-3">Riepilogo per Medico</h4>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {Object.entries(riepilogoMensile.perMedico)
-                  .filter(([medico]) => filtroRiepilogoMedico === 'tutti' || medico === filtroRiepilogoMedico)
-                  .sort(([, a], [, b]) => b.lordo - a.lordo)
-                  .map(([medico, dati]) => (
-                    <div key={medico} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900">{medico}</p>
-                        <p className="text-sm text-gray-600">{dati.count} fatture</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-medium text-gray-900">{formatCurrency(dati.lordo)}</p>
-                        <p className="text-xs text-gray-500">Netto: {formatCurrency(dati.imponibile)}</p>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </div>
-            
-            {/* Per Serie */}
-            <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-3">Riepilogo per Serie</h4>
-              <div className="space-y-2">
-                {Object.entries(riepilogoMensile.perSerie)
-                  .filter(([serie]) => filtroRiepilogoSerie === 'tutte' || serie === filtroRiepilogoSerie)
-                  .map(([serie, dati]) => (
-                    <div key={serie} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900">Serie {serie.toUpperCase()}</p>
-                        <p className="text-sm text-gray-600">{dati.count} fatture</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-medium text-gray-900">{formatCurrency(dati.lordo)}</p>
-                        <p className="text-xs text-gray-500">IVA: {formatCurrency(dati.iva)}</p>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <RiepilogoMensile riepilogoMensile={riepilogoMensile} />
 
 
       {/* Modals */}
