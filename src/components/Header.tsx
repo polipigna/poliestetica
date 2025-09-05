@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { 
   LogOut,
   Calendar,
@@ -69,13 +70,22 @@ export default function Header({
       <div className="bg-white px-6 py-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
           {/* Logo e Brand */}
-          <div className="flex items-center gap-4">
-            <CompanyLogo />
-            <div>
-              <h1 className="text-2xl font-semibold text-gray-800">Poliestetica Pignatelli</h1>
-              <p className="text-sm text-gray-500">Sistema Gestione Compensi</p>
+          <Link 
+            href="/" 
+            className="flex items-center gap-4 group"
+          >
+            <div className="transition-transform duration-200 group-hover:scale-105">
+              <CompanyLogo />
             </div>
-          </div>
+            <div>
+              <h1 className="text-2xl font-semibold text-gray-800 group-hover:text-[#03A6A6] transition-colors duration-200">
+                Poliestetica Pignatelli
+              </h1>
+              <p className="text-sm text-gray-500 group-hover:text-gray-600 transition-colors duration-200">
+                Sistema Gestione Compensi
+              </p>
+            </div>
+          </Link>
 
           {/* User Info */}
           <div className="flex items-center gap-6">
