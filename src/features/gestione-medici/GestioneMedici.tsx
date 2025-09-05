@@ -1,18 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Eye,
   Download,
   Upload,
   ChevronLeft,
-  AlertCircle,
-  X
+  AlertCircle
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import type { Medico, MedicoRegoleCosti } from '@/data/mock';
 import { prestazioni, prodotti } from '@/data/mock';
 import { MediciStore } from '@/services/stores/mediciStore';
-import type { MedicoExtended as MedicoExtendedStore } from '@/services/datasources/interfaces';
 import { useUser } from '@/contexts/UserContext';
+import { 
+  CompensiCalculator,
+  RegolaValidator, 
+  EccezioniManager,
+  ProdottiCostiManager,
+  type CalcoloParams
+} from '@/services/compensi';
 
 // Transform prestazioni to trattamentiDisponibili format
 const trattamentiDisponibili = prestazioni.map(p => ({
@@ -58,7 +63,6 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
   
   // Trasforma i medici iniziali nel formato esteso
   const [medici, setMedici] = useState<MedicoExtended[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   
   // Ottieni istanza singleton dello store
   const mediciStore = MediciStore.getInstance();
@@ -66,7 +70,6 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
   // Funzione per caricare medici dallo store
   const loadMedici = async () => {
     try {
-      setIsLoading(true);
       
       // Carica medici dallo store (prima volta da mock, poi da localStorage)
       const mediciFromStore = await mediciStore.getMedici();
@@ -119,8 +122,6 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
     } catch (error) {
       console.error('Errore caricamento medici dallo store:', error);
       alert('Errore nel caricamento dei medici');
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -191,14 +192,18 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
     trattamento: '',
     prodotto: '',
     regola: {
-      tipo: 'percentuale',
+      tipo: 'percentuale' as 'percentuale' | 'scaglioni' | 'fisso',
       valore: 50,
       valoreX: 50,
       valoreY: 200,
-      su: 'netto',
+      su: 'netto' as 'netto' | 'lordo',
       detraiCosto: true
     }
   });
+
+  // Inizializza i servizi business logic
+  const compensiCalculator = useMemo(() => new CompensiCalculator(), []);
+  const regolaValidator = useMemo(() => new RegolaValidator(), []);
 
   const calcolaCompenso = () => {
     if (!simulazione.trattamento || !simulazione.importoFattura || !selectedMedico) {
@@ -211,121 +216,69 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
       return;
     }
     
-    // Calcola importo netto (scorporo IVA se inclusa)
-    const importoLordo = importo;
-    const importoNetto = simulazione.ivaInclusa ? importo / 1.22 : importo;
+    // Usa il nuovo CompensiCalculator
+    const params: CalcoloParams = {
+      importoFattura: importo,
+      ivaInclusa: simulazione.ivaInclusa,
+      trattamento: simulazione.trattamento,
+      prodotto: simulazione.prodotto || undefined,
+      quantita: 1,
+      regolaBase: selectedMedico.regolaBase,
+      eccezioni: selectedMedico.eccezioni || [],
+      costiProdotti: selectedMedico.costiProdotti || []
+    };
     
-    // Trova la regola da applicare
-    let regolaApplicata = selectedMedico.regolaBase;
-    let tipoRegola = 'Regola base';
+    const risultato = compensiCalculator.calcola(params);
     
-    // Controlla se c'è un'eccezione specifica per trattamento + prodotto
-    if (simulazione.prodotto) {
-      const eccezioneSpecifica = (selectedMedico?.eccezioni || []).find(
-        e => e.trattamento === simulazione.trattamento && e.prodotto === simulazione.prodotto
-      );
-      if (eccezioneSpecifica) {
-        regolaApplicata = eccezioneSpecifica.regola;
-        tipoRegola = `Eccezione "${simulazione.trattamento} + ${simulazione.prodotto}"`;
-      }
-    }
+    // Calcola valori aggiuntivi per la UI (non business logic core)
+    const compensoFinale = risultato.compensoNetto;
+    const margineClinica = risultato.importoNetto - compensoFinale;
+    const percentualeMargine = risultato.importoNetto > 0 
+      ? (margineClinica / risultato.importoNetto) * 100 
+      : 0;
     
-    // Se non c'è eccezione specifica, controlla eccezione solo trattamento
-    if (tipoRegola === 'Regola base') {
-      const eccezioneTrattamento = (selectedMedico?.eccezioni || []).find(
-        e => e.trattamento === simulazione.trattamento && !e.prodotto
-      );
-      if (eccezioneTrattamento) {
-        regolaApplicata = eccezioneTrattamento.regola;
-        tipoRegola = `Eccezione "${simulazione.trattamento}" (tutti i prodotti)`;
-      }
-    }
-    
-    // Calcola il compenso base
-    const importoCalcolo = regolaApplicata.su === 'netto' ? importoNetto : importoLordo;
-    let compensoBase = 0;
-    let descrizioneCalcolo = '';
-    
-    switch (regolaApplicata.tipo) {
-      case 'percentuale':
-        compensoBase = (importoCalcolo * regolaApplicata.valore) / 100;
-        descrizioneCalcolo = `${regolaApplicata.valore}% di €${importoCalcolo.toFixed(2)}`;
-        break;
-      case 'scaglioni':
-        compensoBase = (importoCalcolo / regolaApplicata.valoreY) * regolaApplicata.valoreX;
-        descrizioneCalcolo = `€${regolaApplicata.valoreX} ogni €${regolaApplicata.valoreY} di imponibile`;
-        break;
-      case 'fisso':
-        compensoBase = regolaApplicata.valoreX / regolaApplicata.valoreY;
-        descrizioneCalcolo = `€${regolaApplicata.valoreX} ogni ${regolaApplicata.valoreY} prestazioni`;
-        break;
-    }
-    
-    // Calcola detrazione costo prodotto
-    let costoProdotto = 0;
-    if (simulazione.prodotto && regolaApplicata.detraiCosto) {
-      const prodottoConfig = (selectedMedico?.costiProdotti || []).find(
-        cp => cp.nome === simulazione.prodotto
-      );
-      if (prodottoConfig) {
-        costoProdotto = prodottoConfig.costo;
-      }
-    }
-    
-    const compensoFinale = compensoBase - costoProdotto;
-    const margineClinica = importoNetto - compensoFinale;
-    const percentualeMargine = (margineClinica / importoNetto) * 100;
-    
+    // Adatta il risultato al formato atteso dal componente
     setRisultatoSimulazione({
-      importoLordo,
-      importoNetto,
-      tipoRegola,
-      regolaApplicata,
-      descrizioneCalcolo,
-      compensoBase,
-      costoProdotto,
-      compensoFinale,
-      margineClinica,
-      percentualeMargine
+      importoLordo: risultato.importoLordo,
+      importoNetto: risultato.importoNetto,
+      compensoBase: risultato.compensoBase,
+      costoProdotto: risultato.costoProdotto,
+      compensoNetto: risultato.compensoNetto,
+      compensoFinale: compensoFinale,
+      margineClinica: margineClinica,
+      percentualeMargine: percentualeMargine,
+      tipoRegola: risultato.tipoRegola,
+      descrizioneCalcolo: risultato.descrizioneCalcolo,
+      dettagliCosti: risultato.dettagliCosti,
+      regolaApplicata: risultato.regolaApplicata
     });
   };
 
   const handleConfirmImport = () => {
-    if (importPreview && !importPreview.error) {
-      // Applica le modifiche ai prodotti esistenti
-      let updatedCostiProdotti = (selectedMedico?.costiProdotti || []).map((p: any) => {
-        const modifica = importPreview.modifiche.find((m: any) => m.nome === p.nome);
-        if (modifica) {
-          return {
-            ...p,
-            costo: modifica.nuovoCosto,
-            nonDetrarre: modifica.nuovoCosto === 0
-          };
-        }
-        return p;
-      });
+    if (importPreview && !importPreview.error && selectedMedico) {
+      // Usa ProdottiCostiManager per confermare l'import
+      const manager = new ProdottiCostiManager(
+        selectedMedico.costiProdotti || [],
+        prodottiDisponibili
+      );
       
-      // Aggiungi i nuovi prodotti
-      importPreview.nuoviProdotti.forEach((np: any) => {
-        updatedCostiProdotti.push({
-          id: Date.now() + Math.random(), // ID unico
-          nome: np.nome,
-          costo: np.costo,
-          unitaMisura: np.unitaMisura || 'unità',
-          nonDetrarre: np.costo === 0
-        });
-      });
-      
-      const updatedMedico = {
-        ...(selectedMedico as MedicoExtended),
-        costiProdotti: updatedCostiProdotti
-      };
-      
-      setSelectedMedico(updatedMedico);
-      setHasUnsavedChanges(true);
-      setShowImportConfirm(false);
-      setImportFile(null);
-      setImportPreview(null);
+      try {
+        // Conferma l'import usando il manager
+        manager.confirmImport(importPreview);
+        
+        const updatedMedico = {
+          ...selectedMedico,
+          costiProdotti: manager.getAll()
+        };
+        
+        setSelectedMedico(updatedMedico);
+        setHasUnsavedChanges(true);
+        setShowImportConfirm(false);
+        setImportFile(null);
+        setImportPreview(null);
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'Errore nella conferma dell\'import');
+      }
     }
   };
 
@@ -351,65 +304,27 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
       return;
     }
     
-    // Validazione regola base (solo per admin)
+    // Validazione usando RegolaValidator
     if (!selectedMedico) return;
-    const regola = selectedMedico.regolaBase;
-    if (regola.tipo === 'percentuale' && (!regola.valore || regola.valore === '' || regola.valore === 0)) {
-      alert('Inserisci una percentuale valida nella regola base');
-      return;
-    }
-    if (regola.tipo === 'scaglioni') {
-      if (!regola.valoreX || !regola.valoreY || regola.valoreX === 0 || regola.valoreY === 0) {
-        alert('Inserisci valori validi per gli scaglioni nella regola base (X e Y devono essere maggiori di 0)');
-        return;
-      }
-      if (regola.valoreX >= regola.valoreY) {
-        alert('Nella regola base a scaglioni, X deve essere minore di Y (non puoi dare più di quanto incassi)');
-        return;
-      }
-    }
-    if (regola.tipo === 'fisso' && (!regola.valoreX || !regola.valoreY || regola.valoreX === 0 || regola.valoreY === 0)) {
-      alert('Inserisci valori validi per la quota fissa nella regola base (X e Y devono essere maggiori di 0)');
+    
+    // Valida coerenza generale
+    const warnings = regolaValidator.validateCoherence(
+      selectedMedico.regolaBase,
+      selectedMedico.eccezioni || [],
+      selectedMedico.costiProdotti || []
+    );
+    
+    // Controlla errori critici
+    const errori = warnings.filter(w => w.gravita === 'error');
+    if (errori.length > 0) {
+      alert(errori[0].messaggio);
       return;
     }
     
-    // Validazione eccezioni
-    for (const eccezione of selectedMedico.eccezioni || []) {
-      if (!eccezione.trattamento) {
-        alert('Tutte le eccezioni devono avere un trattamento selezionato');
-        return;
-      }
-      
-      const ecc = eccezione.regola;
-      if (ecc.tipo === 'percentuale' && (!ecc.valore || ecc.valore === '' || ecc.valore === 0)) {
-        alert(`L'eccezione per "${eccezione.trattamento}" deve avere una percentuale valida`);
-        return;
-      }
-      if (ecc.tipo === 'scaglioni') {
-        if (!ecc.valoreX || !ecc.valoreY || ecc.valoreX === 0 || ecc.valoreY === 0) {
-          alert(`L'eccezione per "${eccezione.trattamento}" deve avere valori validi per gli scaglioni`);
-          return;
-        }
-        if (ecc.valoreX >= ecc.valoreY) {
-          alert(`L'eccezione per "${eccezione.trattamento}" ha valori scaglioni errati: X deve essere minore di Y`);
-          return;
-        }
-      }
-      if (ecc.tipo === 'fisso' && (!ecc.valoreX || !ecc.valoreY || ecc.valoreX === 0 || ecc.valoreY === 0)) {
-        alert(`L'eccezione per "${eccezione.trattamento}" deve avere valori validi per la quota fissa`);
-        return;
-      }
-      
-      // Validazione prodotto non configurato con detrazione costo
-      if (eccezione.prodotto && eccezione.regola.detraiCosto) {
-        const prodottoConfigurato = (selectedMedico.costiProdotti || []).some(
-          cp => cp.nome === eccezione.prodotto
-        );
-        if (!prodottoConfigurato) {
-          alert(`L'eccezione per "${eccezione.trattamento}" con prodotto "${eccezione.prodotto}" ha la detrazione costi attiva ma il prodotto non è configurato nella lista costi. Configura il prodotto o disattiva la detrazione costi.`);
-          return;
-        }
-      }
+    // Validazioni base che il validator potrebbe non coprire
+    if (!selectedMedico.regolaBase || !selectedMedico.regolaBase.tipo) {
+      alert('Configurazione regola base mancante');
+      return;
     }
     
     // Salva nello store tutti i dati del medico
@@ -479,34 +394,32 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
 
   const handleAddProdotto = (prodotto: any) => {
     if (selectedMedico && prodotto) {
-      // Verifica se il prodotto esiste già
-      const prodottoEsistente = (selectedMedico.costiProdotti || []).some(
-        (cp: any) => cp.nome === prodotto.nome
+      // Usa ProdottiCostiManager per validare e aggiungere
+      const manager = new ProdottiCostiManager(
+        selectedMedico.costiProdotti || [],
+        prodottiDisponibili
       );
       
-      if (prodottoEsistente) {
-        alert(`Il prodotto "${prodotto.nome}" è già stato configurato per questo medico`);
-        return;
+      try {
+        const prodottoDisponibile = prodottiDisponibili.find(p => p.nome === prodotto.nome);
+        
+        manager.add({
+          nome: prodotto.nome,
+          costo: prodotto.costo,
+          unitaMisura: prodottoDisponibile?.unitaMisura || 'unità',
+          nonDetrarre: prodotto.nonDetrarre
+        });
+        
+        const updatedMedico = {
+          ...selectedMedico,
+          costiProdotti: manager.getAll()
+        };
+        
+        setSelectedMedico(updatedMedico);
+        setHasUnsavedChanges(true);
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'Errore nell\'aggiunta del prodotto');
       }
-      
-      // Trova l'unità di misura dal prodotto disponibile
-      const prodottoDisponibile = prodottiDisponibili.find(p => p.nome === prodotto.nome);
-      
-      const newProdotto = {
-        id: Date.now(),
-        nome: prodotto.nome,
-        costo: prodotto.costo,
-        unitaMisura: prodottoDisponibile?.unitaMisura || 'unità',
-        nonDetrarre: prodotto.nonDetrarre
-      };
-      
-      const updatedMedico = {
-        ...selectedMedico,
-        costiProdotti: [...(selectedMedico.costiProdotti || []), newProdotto]
-      };
-      
-      setSelectedMedico(updatedMedico);
-      setHasUnsavedChanges(true);
     }
   };
 
@@ -570,64 +483,32 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json(firstSheet);
         
-        // Prepara le modifiche e i nuovi prodotti da confermare
-        const modifiche: any[] = [];
-        const nuoviProdotti: any[] = [];
-        const prodottiNonValidi: any[] = [];
+        // Usa ProdottiCostiManager per preparare l'import
+        const manager = new ProdottiCostiManager(
+          selectedMedico?.costiProdotti || [],
+          prodottiDisponibili
+        );
         
-        const prodottiAttualiMap: Record<string, any> = {};
-        (selectedMedico?.costiProdotti || []).forEach((p: any) => {
-          prodottiAttualiMap[p.nome] = p;
-        });
+        // Prepara i dati per l'import
+        const importData = jsonData.map((row: any) => ({
+          nome: row['Nome Prodotto'],
+          costo: parseFloat(row['Costo']) || 0
+        })).filter((item: any) => item.nome);
         
-        jsonData.forEach((row: any) => {
-          const nomeProdotto = row['Nome Prodotto'];
-          const nuovoCosto = Math.max(0, parseFloat(row['Costo']) || 0);
-          
-          if (nomeProdotto) {
-            // Se il prodotto esiste già, registra la modifica
-            if (prodottiAttualiMap[nomeProdotto]) {
-              const vecchioCosto = prodottiAttualiMap[nomeProdotto].costo;
-              if (vecchioCosto !== nuovoCosto) {
-                modifiche.push({
-                  nome: nomeProdotto,
-                  vecchioCosto: vecchioCosto,
-                  nuovoCosto: nuovoCosto
-                });
-              }
-            } else {
-              // Se il prodotto non esiste, verifica se è nella lista disponibili
-              const prodottoDisponibile = prodottiDisponibili.find(p => p.nome === nomeProdotto);
-              if (prodottoDisponibile) {
-                nuoviProdotti.push({
-                  nome: nomeProdotto,
-                  costo: nuovoCosto,
-                  unitaMisura: prodottoDisponibile.unitaMisura
-                });
-              } else {
-                prodottiNonValidi.push(nomeProdotto);
-              }
-            }
-          }
-        });
+        const importResult = manager.prepareImport(importData);
         
-        // Se ci sono prodotti non validi, li includiamo nel preview
-        if (modifiche.length === 0 && nuoviProdotti.length === 0) {
-          // Usa setState invece di alert
+        // Se non ci sono modifiche o nuovi prodotti validi
+        if (importResult.modifiche.length === 0 && importResult.nuoviProdotti.length === 0) {
           setImportPreview({
             error: 'Nessuna modifica o nuovo prodotto valido rilevato nel file importato.',
-            prodottiNonValidi: prodottiNonValidi
+            prodottiNonValidi: importResult.prodottiNonValidi
           });
           setShowImportConfirm(true);
           return;
         }
         
         // Salva il preview per il modal di conferma
-        setImportPreview({
-          modifiche,
-          nuoviProdotti,
-          prodottiNonValidi
-        });
+        setImportPreview(importResult);
         setShowImportConfirm(true);
         setShowImportProdotti(false); // Chiudi il modal di import
         
@@ -639,137 +520,112 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
       }
     };
     
-    reader.onerror = (error) => {
+    reader.onerror = () => {
       setImportPreview({
         error: 'Errore durante la lettura del file'
       });
       setShowImportConfirm(true);
     };
     
-    // Leggi il file come binary string
+    // Leggi il file come binary string (nota: deprecated ma ancora funzionante per compatibilità)
     reader.readAsBinaryString(importFile);
   };
 
   const handleUpdateProdotto = (id: number, costo: string | number) => {
     if (selectedMedico) {
-      const nuovoCosto = Math.max(0, parseFloat(String(costo)) || 0); // Previene valori negativi
-      const updatedMedico = {
-        ...selectedMedico,
-        costiProdotti: (selectedMedico.costiProdotti || []).map((p: any) =>
-          p.id === id ? { 
-            ...p, 
-            costo: nuovoCosto,
-            nonDetrarre: nuovoCosto === 0 
-          } : p
-        )
-      };
+      const manager = new ProdottiCostiManager(
+        selectedMedico.costiProdotti || [],
+        prodottiDisponibili
+      );
       
-      setSelectedMedico(updatedMedico);
-      setHasUnsavedChanges(true);
-      setEditingProdotto(null);
+      try {
+        const nuovoCosto = regolaValidator.sanitizeValorePositivo(parseFloat(String(costo)) || 0);
+        manager.update(id, {
+          costo: nuovoCosto,
+          nonDetrarre: nuovoCosto === 0
+        });
+        
+        const updatedMedico = {
+          ...selectedMedico,
+          costiProdotti: manager.getAll()
+        };
+        
+        setSelectedMedico(updatedMedico);
+        setHasUnsavedChanges(true);
+        setEditingProdotto(null);
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'Errore nell\'aggiornamento del prodotto');
+      }
     }
   };
 
   const handleRemoveProdotto = (id: number) => {
     if (selectedMedico) {
-      const updatedMedico = {
-        ...selectedMedico,
-        costiProdotti: (selectedMedico.costiProdotti || []).filter((p: any) => p.id !== id)
-      };
+      const manager = new ProdottiCostiManager(
+        selectedMedico.costiProdotti || [],
+        prodottiDisponibili
+      );
       
-      setSelectedMedico(updatedMedico);
-      setHasUnsavedChanges(true);
+      try {
+        manager.remove(id);
+        
+        const updatedMedico = {
+          ...selectedMedico,
+          costiProdotti: manager.getAll()
+        };
+        
+        setSelectedMedico(updatedMedico);
+        setHasUnsavedChanges(true);
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'Errore nella rimozione del prodotto');
+      }
     }
   };
 
   const handleUpdateEccezione = (id: number, updates: any) => {
     if (selectedMedico) {
-      const updatedMedico = {
-        ...selectedMedico,
-        eccezioni: (selectedMedico.eccezioni || []).map((e: any) =>
-          e.id === id ? { ...e, ...updates } : e
-        )
-      };
+      const manager = new EccezioniManager(selectedMedico.eccezioni || []);
       
-      setSelectedMedico(updatedMedico);
-      setHasUnsavedChanges(true);
+      try {
+        manager.update(id, updates);
+        
+        const updatedMedico = {
+          ...selectedMedico,
+          eccezioni: manager.getAll()
+        };
+        
+        setSelectedMedico(updatedMedico);
+        setHasUnsavedChanges(true);
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'Errore nell\'aggiornamento dell\'eccezione');
+      }
     }
   };
 
   const handleRemoveEccezione = (id: number) => {
     if (selectedMedico) {
-      const updatedMedico = {
-        ...selectedMedico,
-        eccezioni: (selectedMedico.eccezioni || []).filter((e: any) => e.id !== id)
-      };
+      const manager = new EccezioniManager(selectedMedico.eccezioni || []);
       
-      setSelectedMedico(updatedMedico);
-      setHasUnsavedChanges(true);
-      if (editingEccezione === id) {
-        setEditingEccezione(null);
+      try {
+        manager.remove(id);
+        
+        const updatedMedico = {
+          ...selectedMedico,
+          eccezioni: manager.getAll()
+        };
+        
+        setSelectedMedico(updatedMedico);
+        setHasUnsavedChanges(true);
+        if (editingEccezione === id) {
+          setEditingEccezione(null);
+        }
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'Errore nella rimozione dell\'eccezione');
       }
     }
   };
 
-  const validateCoherence = (regolaBase: any, eccezioni: any[], costiProdotti: any[]) => {
-    const warnings: any[] = [];
-    
-    eccezioni.forEach((eccezione: any) => {
-      // 1. Eccezione identica a regola base
-      if (eccezione.regola.tipo === regolaBase.tipo &&
-          eccezione.regola.su === regolaBase.su &&
-          eccezione.regola.detraiCosto === regolaBase.detraiCosto) {
-        
-        let isIdentical = false;
-        
-        if (eccezione.regola.tipo === 'percentuale' && 
-            eccezione.regola.valore === regolaBase.valore) {
-          isIdentical = true;
-        } else if (eccezione.regola.tipo === 'scaglioni' &&
-                   eccezione.regola.valoreX === regolaBase.valoreX &&
-                   eccezione.regola.valoreY === regolaBase.valoreY) {
-          isIdentical = true;
-        } else if (eccezione.regola.tipo === 'fisso' &&
-                   eccezione.regola.valoreX === regolaBase.valoreX &&
-                   eccezione.regola.valoreY === regolaBase.valoreY) {
-          isIdentical = true;
-        }
-        
-        if (isIdentical) {
-          warnings.push({
-            tipo: 'identica',
-            eccezione: eccezione,
-            messaggio: `L'eccezione per "${eccezione.trattamento}" è identica alla regola base`
-          });
-        }
-      }
-      
-      // 2. Eccezione più generosa (solo per percentuali)
-      if (eccezione.regola.tipo === 'percentuale' && regolaBase.tipo === 'percentuale') {
-        if (eccezione.regola.valore > regolaBase.valore) {
-          warnings.push({
-            tipo: 'generosa',
-            eccezione: eccezione,
-            messaggio: `L'eccezione per "${eccezione.trattamento}" (${eccezione.regola.valore}%) è più alta della regola base (${regolaBase.valore}%)`
-          });
-        }
-      }
-      
-      // 3. Prodotto non configurato con detrazione costo
-      if (eccezione.prodotto && eccezione.regola.detraiCosto) {
-        const prodottoConfigurato = costiProdotti.some(cp => cp.nome === eccezione.prodotto);
-        if (!prodottoConfigurato) {
-          warnings.push({
-            tipo: 'prodotto-mancante',
-            eccezione: eccezione,
-            messaggio: `L'eccezione per "${eccezione.trattamento}" con prodotto "${eccezione.prodotto}" ha la detrazione costi attiva ma il prodotto non è configurato`
-          });
-        }
-      }
-    });
-    
-    return warnings;
-  };
+  // Rimosso validateCoherence e isRegolaValida - ora usiamo direttamente regolaValidator
 
   const getRegolaDescription = (regola: any) => {
     switch (regola.tipo) {
@@ -1481,7 +1337,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                                 ...selectedMedico,
                                 regolaBase: { 
                                   ...selectedMedico.regolaBase, 
-                                  valore: Math.min(100, Math.max(0, parseInt(value) || 0))
+                                  valore: regolaValidator.sanitizePercentuale(parseInt(value) || 0)
                                 }
                               });
                               setHasUnsavedChanges(true);
@@ -1541,7 +1397,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                                 ...selectedMedico,
                                 regolaBase: { 
                                   ...selectedMedico.regolaBase, 
-                                  valoreX: Math.max(0, parseInt(value) || 0)
+                                  valoreX: regolaValidator.sanitizeValorePositivo(parseInt(value) || 0)
                                 }
                               });
                               setHasUnsavedChanges(true);
@@ -1575,7 +1431,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                                 ...selectedMedico,
                                 regolaBase: { 
                                   ...selectedMedico.regolaBase, 
-                                  valoreY: Math.max(1, parseInt(value) || 1)
+                                  valoreY: regolaValidator.sanitizeValorePositivo(parseInt(value) || 0, 1)
                                 }
                               });
                               setHasUnsavedChanges(true);
@@ -1637,7 +1493,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                                 ...selectedMedico,
                                 regolaBase: { 
                                   ...selectedMedico.regolaBase, 
-                                  valoreX: Math.max(0, parseInt(value) || 0)
+                                  valoreX: regolaValidator.sanitizeValorePositivo(parseInt(value) || 0)
                                 }
                               });
                               setHasUnsavedChanges(true);
@@ -1668,7 +1524,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                                 ...selectedMedico,
                                 regolaBase: { 
                                   ...selectedMedico.regolaBase, 
-                                  valoreY: Math.max(1, parseInt(value) || 1)
+                                  valoreY: regolaValidator.sanitizeValorePositivo(parseInt(value) || 0, 1)
                                 }
                               });
                               setHasUnsavedChanges(true);
@@ -1858,14 +1714,14 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
 
               {/* Analisi coerenza */}
               {(() => {
-                const warnings = validateCoherence(
+                const warnings = regolaValidator.validateCoherence(
                   selectedMedico?.regolaBase || {}, 
                   selectedMedico?.eccezioni || [],
                   selectedMedico?.costiProdotti || []
                 );
                 const identiche = warnings.filter(w => w.tipo === 'identica').length;
-                const generose = warnings.filter(w => w.tipo === 'generosa').length;
-                const prodottiMancanti = warnings.filter(w => w.tipo === 'prodotto-mancante').length;
+                const generose = warnings.filter(w => w.tipo === 'piu_generosa').length;
+                const prodottiMancanti = warnings.filter(w => w.tipo === 'prodotto_mancante').length;
                 
                 if (warnings.length > 0) {
                   return (
@@ -1922,7 +1778,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                 <div className="space-y-4">
                   {(selectedMedico?.eccezioni || []).map((eccezione) => {
                     // Trova avvisi per questa eccezione
-                    const warnings = validateCoherence(
+                    const warnings = regolaValidator.validateCoherence(
                       selectedMedico?.regolaBase || {},
                       selectedMedico?.eccezioni || [],
                       selectedMedico?.costiProdotti || []
@@ -2038,7 +1894,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                                       handleUpdateEccezione(eccezione.id, {
                                         regola: { 
                                           ...eccezione.regola, 
-                                          valore: Math.min(100, Math.max(0, parseInt(value) || 0))
+                                          valore: regolaValidator.sanitizePercentuale(parseInt(value) || 0)
                                         }
                                       });
                                     }}
@@ -2082,7 +1938,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                                       handleUpdateEccezione(eccezione.id, {
                                         regola: { 
                                           ...eccezione.regola, 
-                                          valoreX: Math.max(0, parseInt(value) || 0)
+                                          valoreX: regolaValidator.sanitizeValorePositivo(parseInt(value) || 0)
                                         }
                                       });
                                     }}
@@ -2107,7 +1963,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                                       handleUpdateEccezione(eccezione.id, {
                                         regola: { 
                                           ...eccezione.regola, 
-                                          valoreY: Math.max(1, parseInt(value) || 1)
+                                          valoreY: regolaValidator.sanitizeValorePositivo(parseInt(value) || 0, 1)
                                         }
                                       });
                                     }}
@@ -2156,7 +2012,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                                       handleUpdateEccezione(eccezione.id, {
                                         regola: { 
                                           ...eccezione.regola, 
-                                          valoreX: Math.max(0, parseInt(value) || 0)
+                                          valoreX: regolaValidator.sanitizeValorePositivo(parseInt(value) || 0)
                                         }
                                       });
                                     }}
@@ -2181,7 +2037,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                                       handleUpdateEccezione(eccezione.id, {
                                         regola: { 
                                           ...eccezione.regola, 
-                                          valoreY: Math.max(1, parseInt(value) || 1)
+                                          valoreY: regolaValidator.sanitizeValorePositivo(parseInt(value) || 0, 1)
                                         }
                                       });
                                     }}
@@ -2219,9 +2075,8 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                             <button
                               onClick={() => {
                                 // Validazione prima di confermare
-                                if (eccezione.regola.tipo === 'scaglioni' && 
-                                    eccezione.regola.valoreX >= eccezione.regola.valoreY) {
-                                  alert('Nella regola a scaglioni, X deve essere minore di Y (non puoi dare più di quanto incassi)');
+                                if (!regolaValidator.isRegolaValida(eccezione.regola)) {
+                                  alert('Regola non valida. Verifica i valori inseriti.');
                                   return;
                                 }
                                 
@@ -2296,17 +2151,17 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                             key={idx} 
                             className={`p-2 rounded text-sm flex items-start gap-2 ${
                               warning.tipo === 'identica' ? 'bg-amber-50 border border-amber-200' :
-                              warning.tipo === 'generosa' ? 'bg-blue-50 border border-blue-200' :
+                              warning.tipo === 'piu_generosa' ? 'bg-blue-50 border border-blue-200' :
                               'bg-red-50 border border-red-200'
                             }`}
                           >
                             <span>
                               {warning.tipo === 'identica' ? '⚠️' :
-                               warning.tipo === 'generosa' ? 'ℹ️' : '❌'}
+                               warning.tipo === 'piu_generosa' ? 'ℹ️' : '❌'}
                             </span>
                             <span className={
                               warning.tipo === 'identica' ? 'text-amber-700' :
-                              warning.tipo === 'generosa' ? 'text-blue-700' :
+                              warning.tipo === 'piu_generosa' ? 'text-blue-700' :
                               'text-red-700'
                             }>
                               {warning.messaggio}
@@ -2677,7 +2532,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                       return;
                     }
                     
-                    const costoNum = Math.max(0, parseFloat(costo) || 0); // Previene valori negativi
+                    const costoNum = regolaValidator.sanitizeValorePositivo(parseFloat(costo) || 0); // Previene valori negativi
                     handleAddProdotto({
                       nome: nome,
                       costo: costoNum,
@@ -2840,7 +2695,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                             ...newEccezione,
                             regola: { 
                               ...newEccezione.regola, 
-                              valore: Math.min(100, Math.max(0, parseInt(value) || 0))
+                              valore: regolaValidator.sanitizePercentuale(parseInt(value) || 0)
                             }
                           });
                         }}
@@ -2863,7 +2718,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                         value={newEccezione.regola.su}
                         onChange={(e) => setNewEccezione({
                           ...newEccezione,
-                          regola: { ...newEccezione.regola, su: e.target.value }
+                          regola: { ...newEccezione.regola, su: e.target.value as 'netto' | 'lordo' }
                         })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
                       >
@@ -2887,7 +2742,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                             ...newEccezione,
                             regola: { 
                               ...newEccezione.regola, 
-                              valoreX: Math.max(0, parseInt(value) || 0)
+                              valoreX: regolaValidator.sanitizeValorePositivo(parseInt(value) || 0)
                             }
                           });
                         }}
@@ -2914,7 +2769,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                             ...newEccezione,
                             regola: { 
                               ...newEccezione.regola, 
-                              valoreY: Math.max(1, parseInt(value) || 1)
+                              valoreY: regolaValidator.sanitizeValorePositivo(parseInt(value) || 0, 1)
                             }
                           });
                         }}
@@ -2936,7 +2791,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                         value={newEccezione.regola.su}
                         onChange={(e) => setNewEccezione({
                           ...newEccezione,
-                          regola: { ...newEccezione.regola, su: e.target.value }
+                          regola: { ...newEccezione.regola, su: e.target.value as 'netto' | 'lordo' }
                         })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
                       >
@@ -2966,7 +2821,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                             ...newEccezione,
                             regola: { 
                               ...newEccezione.regola, 
-                              valoreX: Math.max(0, parseInt(value) || 0)
+                              valoreX: regolaValidator.sanitizeValorePositivo(parseInt(value) || 0)
                             }
                           });
                         }}
@@ -2993,7 +2848,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                             ...newEccezione,
                             regola: { 
                               ...newEccezione.regola, 
-                              valoreY: Math.max(1, parseInt(value) || 1)
+                              valoreY: regolaValidator.sanitizeValorePositivo(parseInt(value) || 0, 1)
                             }
                           });
                         }}
@@ -3066,16 +2921,10 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                     }
                     
                     // Validazione regola scaglioni
-                    if (newEccezione.regola.tipo === 'scaglioni') {
-                      if (!newEccezione.regola.valoreX || !newEccezione.regola.valoreY || 
-                          newEccezione.regola.valoreX === 0 || newEccezione.regola.valoreY === 0) {
-                        alert('Inserisci valori validi per gli scaglioni (X e Y devono essere maggiori di 0)');
-                        return;
-                      }
-                      if (newEccezione.regola.valoreX >= newEccezione.regola.valoreY) {
-                        alert('Nella regola a scaglioni, X deve essere minore di Y (non puoi dare più di quanto incassi)');
-                        return;
-                      }
+                    // Valida la regola
+                    if (!regolaValidator.isRegolaValida(newEccezione.regola)) {
+                      alert('Regola non valida. Verifica i valori inseriti.');
+                      return;
                     }
                     
                     // Validazione prodotto non configurato con detrazione costo
@@ -3089,18 +2938,26 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                       }
                     }
                     
-                    const eccezioneToAdd = {
-                      ...newEccezione,
-                      id: Date.now()
-                    };
+                    const manager = new EccezioniManager(selectedMedico.eccezioni || []);
                     
-                    const updatedMedico = {
-                      ...selectedMedico,
-                      eccezioni: [...(selectedMedico.eccezioni || []), eccezioneToAdd]
-                    };
-                    
-                    setSelectedMedico(updatedMedico);
-                    setHasUnsavedChanges(true);
+                    try {
+                      manager.add({
+                        trattamento: newEccezione.trattamento,
+                        prodotto: newEccezione.prodotto || undefined,
+                        regola: newEccezione.regola
+                      });
+                      
+                      const updatedMedico = {
+                        ...selectedMedico,
+                        eccezioni: manager.getAll()
+                      };
+                      
+                      setSelectedMedico(updatedMedico);
+                      setHasUnsavedChanges(true);
+                    } catch (error) {
+                      alert(error instanceof Error ? error.message : 'Errore nell\'aggiunta dell\'eccezione');
+                      return;
+                    }
                     setShowAddEccezione(false);
                     setNewEccezione({
                       trattamento: '',
