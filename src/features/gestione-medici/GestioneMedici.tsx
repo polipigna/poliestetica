@@ -1803,7 +1803,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                               >
                                 <option value="">Seleziona trattamento...</option>
                                 {trattamentiDisponibili.map(tratt => (
-                                  <option key={tratt.nome} value={tratt.nome}>{tratt.nome}</option>
+                                  <option key={tratt.codice} value={tratt.codice}>{tratt.nome}</option>
                                 ))}
                               </select>
                             </div>
@@ -1818,12 +1818,12 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                                 <option value="">Tutti i prodotti</option>
                                 {eccezione.trattamento && 
                                   trattamentiDisponibili
-                                    .find(t => t.nome === eccezione.trattamento)
+                                    .find(t => t.codice === eccezione.trattamento)
                                     ? prodottiDisponibili.map((prod: any) => {
-                                      const isConfigurato = (selectedMedico?.costiProdotti || []).some(cp => cp.nome === prod);
+                                      const isConfigurato = (selectedMedico?.costiProdotti || []).some(cp => cp.nome === prod.nome);
                                       return (
-                                        <option key={prod} value={prod}>
-                                          {prod} {!isConfigurato && '⚠️ Non configurato'}
+                                        <option key={prod.nome} value={prod.nome}>
+                                          {prod.nome} {!isConfigurato && '⚠️ Non configurato'}
                                         </option>
                                       );
                                     })
@@ -2578,7 +2578,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                   >
                     <option value="">Seleziona trattamento...</option>
                     {trattamentiDisponibili.map(tratt => (
-                      <option key={tratt.nome} value={tratt.nome}>{tratt.nome}</option>
+                      <option key={tratt.codice} value={tratt.codice}>{tratt.nome}</option>
                     ))}
                   </select>
                 </div>
@@ -2593,12 +2593,12 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                     <option value="">Tutti i prodotti</option>
                     {newEccezione.trattamento && 
                       trattamentiDisponibili
-                        .find(t => t.nome === newEccezione.trattamento)
+                        .find(t => t.codice === newEccezione.trattamento)
                         ? prodottiDisponibili.map((prod: any) => {
-                          const isConfigurato = (selectedMedico?.costiProdotti || []).some(cp => cp.nome === prod);
+                          const isConfigurato = (selectedMedico?.costiProdotti || []).some(cp => cp.nome === prod.nome);
                           return (
-                            <option key={prod} value={prod}>
-                              {prod} {!isConfigurato && '⚠️ Non configurato'}
+                            <option key={prod.nome} value={prod.nome}>
+                              {prod.nome} {!isConfigurato && '⚠️ Non configurato'}
                             </option>
                           );
                         })
