@@ -1,6 +1,7 @@
 import { Fattura, VoceFattura } from '@/data/mock';
 import { medici, pazienti } from '@/data/mock';
 import { generateVociFattura, calculateAnomalie, generateNumeroFattura } from './fattureHelpers';
+import { FattureStore } from '@/services/stores/fattureStore';
 
 export interface FattureGeneratorConfig {
   numeroFatture: number;
@@ -10,7 +11,6 @@ export interface FattureGeneratorConfig {
 }
 
 export class FattureGenerator {
-  private static STORAGE_KEY = 'poliestetica-fatture-mock';
   private static fatture: Fattura[] = [];
 
   static generate(config: FattureGeneratorConfig): Fattura[] {
@@ -332,18 +332,35 @@ export class FattureGenerator {
     console.log('Distribuzione anomalie:', conteggio);
   }
 
+  /**
+   * Salva le fatture disponibili nello store
+   */
   static save(): void {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.fatture));
-    }
+    FattureStore.saveFattureDisponibili(this.fatture);
   }
 
+  /**
+   * Carica fatture da localStorage se esistono, altrimenti genera nuove
+   */
   static load(): Fattura[] {
     if (typeof window === 'undefined') return [];
 
-    // Genera sempre nuove fatture con test anomalie ad ogni caricamento
+    // Prima prova a caricare da localStorage
+    const fattureEsistenti = FattureStore.getFattureDisponibili();
+    
+    if (fattureEsistenti.length > 0) {
+      console.log('FattureGenerator.load() - Caricate', fattureEsistenti.length, 'fatture da localStorage');
+      this.fatture = fattureEsistenti;
+      return fattureEsistenti;
+    }
+    
+    // Se non ci sono fatture salvate, genera nuove con test anomalie
     const newFatture = this.generateTestAnomalie();
-    console.log('FattureGenerator.load() - Generate', newFatture.length, 'fatture');
+    console.log('FattureGenerator.load() - Generate', newFatture.length, 'nuove fatture');
+    
+    // Salva automaticamente le nuove fatture generate
+    this.fatture = newFatture;
+    this.save();
     
     // Conta anomalie per debug
     const conteggioAnomalie: Record<string, number> = {};
@@ -360,11 +377,35 @@ export class FattureGenerator {
     return newFatture;
   }
 
+  /**
+   * Reset e rigenera fatture
+   */
   static reset(): Fattura[] {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem(this.STORAGE_KEY);
-    }
-    return this.generateTestAnomalie();
+    // Reset store
+    FattureStore.reset();
+    
+    // Genera nuove fatture
+    const nuoveFatture = this.generateTestAnomalie();
+    this.fatture = nuoveFatture;
+    
+    // Salva le nuove fatture generate
+    this.save();
+    
+    console.log('FattureGenerator.reset() - Generate', nuoveFatture.length, 'nuove fatture');
+    return nuoveFatture;
+  }
+
+  /**
+   * Rimuove fatture importate dalle disponibili
+   */
+  static rimuoviFattureImportate(ids: number[]): void {
+    // Rimuovi da array interno
+    this.fatture = this.fatture.filter(f => !ids.includes(f.id));
+    
+    // Rimuovi dallo store
+    FattureStore.rimuoviFattureDisponibili(ids);
+    
+    console.log('FattureGenerator.rimuoviFattureImportate() - Rimosse', ids.length, 'fatture');
   }
 
   static export(): string {

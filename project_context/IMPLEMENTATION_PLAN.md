@@ -13,9 +13,9 @@ Components → Services → Storage
   UI Logic    Logic      Database API (futuro)
 ```
 
-## Fase 1: Infrastruttura Store (Step Corrente)
+## Fase 1: Infrastruttura Store ✅ COMPLETATA
 
-### 1.1 Store da Implementare
+### 1.1 Store da Implementare ✅ FATTO
 
 #### FattureStore
 ```typescript
@@ -65,7 +65,7 @@ class PeriodoContabileStore {
 }
 ```
 
-### 1.2 Floating Reset Button
+### 1.2 Floating Reset Button ✅ FATTO
 ```typescript
 // components/common/ResetButton.tsx
 - Posizione fissa bottom-right
@@ -74,7 +74,7 @@ class PeriodoContabileStore {
 - Reset completo di tutti gli store
 ```
 
-### 1.3 Modifiche a FattureGenerator
+### 1.3 Modifiche a FattureGenerator ✅ FATTO
 ```typescript
 // utils/fattureGenerator.ts
 class FattureGenerator {
@@ -204,7 +204,7 @@ const STORAGE_KEYS = {
 
 ## Timeline Implementazione
 
-- **Step 1** (Current): Store base + Reset button
+- **Step 1** ✅ COMPLETATO: Store base + Reset button
 - **Step 2**: Integrazione Import/Compensi
 - **Step 3**: Periodo contabile
 - **Step 4**: Export e reporting
