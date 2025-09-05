@@ -7,6 +7,7 @@ import {
   Calendar,
   RefreshCw
 } from 'lucide-react';
+import { useUser, DEMO_USERS } from '@/contexts/UserContext';
 
 // Logo Component
 const CompanyLogo = () => {
@@ -31,7 +32,6 @@ interface User {
 }
 
 interface HeaderProps {
-  onUserChange?: (user: User) => void;
   onSync?: () => void;
   lastSync?: string;
   currentMonth?: string;
@@ -40,38 +40,25 @@ interface HeaderProps {
 }
 
 export default function Header({ 
-  onUserChange,
   onSync,
   lastSync = '10 minuti fa',
   currentMonth = 'Dicembre 2024',
   isMonthClosed = false,
   showSync = false
 }: HeaderProps) {
-  const [currentUser, setCurrentUser] = useState<User>({ 
-    name: 'Maria Rossi', 
-    role: 'admin',
-    email: 'maria.rossi@poliestetica.com'
-  });
-  
+  const { user, setUser, isDemoMode } = useUser();
   const [isSyncing, setIsSyncing] = useState(false);
 
-  const demoUsers: User[] = [
-    { name: 'Maria Rossi', role: 'admin', email: 'maria.rossi@poliestetica.com' },
-    { name: 'Giulia Bianchi', role: 'segretaria', email: 'giulia.bianchi@poliestetica.com' },
-    { name: 'Paolo Verdi', role: 'responsabile', email: 'paolo.verdi@poliestetica.com' }
-  ];
-
   const handleUserChange = (email: string) => {
-    const user = demoUsers.find(u => u.email === email);
-    if (user) {
-      setCurrentUser(user);
-      onUserChange?.(user);
+    const newUser = DEMO_USERS.find(u => u.email === email);
+    if (newUser) {
+      setUser(newUser);
     }
   };
 
-  const handleSync = async () => {
+  const handleSync = () => {
     setIsSyncing(true);
-    await onSync?.();
+    onSync?.();
     setTimeout(() => {
       setIsSyncing(false);
     }, 2000);
@@ -104,17 +91,24 @@ export default function Header({
             </div>
             
             <div className="flex items-center gap-4 pl-6 border-l border-gray-200">
-              <select
-                value={currentUser.email}
-                onChange={(e) => handleUserChange(e.target.value)}
-                className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
-              >
-                {demoUsers.map(user => (
-                  <option key={user.email} value={user.email}>
-                    {user.name} ({user.role})
-                  </option>
-                ))}
-              </select>
+              {isDemoMode ? (
+                <select
+                  value={user.email}
+                  onChange={(e) => handleUserChange(e.target.value)}
+                  className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#03A6A6] focus:border-transparent"
+                >
+                  {DEMO_USERS.map(u => (
+                    <option key={u.email} value={u.email}>
+                      {u.name} ({u.role})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="text-sm">
+                  <div className="font-medium">{user.name}</div>
+                  <div className="text-gray-500 text-xs">{user.role}</div>
+                </div>
+              )}
               <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
                 <LogOut className="w-5 h-5 text-gray-600" />
               </button>

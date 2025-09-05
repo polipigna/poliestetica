@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import type { Fattura, Medico, MedicoRegoleCosti } from '@/data/mock';
 import { getCostoProdotto, calcolaCompenso, calcolaCostiProdotti } from '@/data/mock';
+import { useUser } from '@/contexts/UserContext';
 
 interface CalcolaCompensiProps {
   fatture: Fattura[];
@@ -69,7 +70,8 @@ export default function CalcolaCompensi({
   }
 
   // Stati principali
-  const [userRole, setUserRole] = useState('admin');
+  const { user, isAdmin } = useUser();
+  const userRole = user.role;
   const [activeTab, setActiveTab] = useState('riepilogo');
   const [selectedMedico, setSelectedMedico] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -1188,18 +1190,7 @@ export default function CalcolaCompensi({
               <p className="text-gray-600 mt-1">Gestione compensi medici - {meseCorrente.mese}</p>
             </div>
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 bg-gray-100 px-3 py-2 rounded-lg">
-                <span className="text-sm text-gray-600">Ruolo:</span>
-                <select
-                  value={userRole}
-                  onChange={(e) => setUserRole(e.target.value)}
-                  className="bg-transparent text-sm font-medium text-gray-800 focus:outline-none"
-                >
-                  <option value="admin">Admin</option>
-                  <option value="segretaria">Segretaria</option>
-                  <option value="responsabile">Responsabile</option>
-                </select>
-              </div>
+              {/* Ruolo ora gestito globalmente dall'Header */}
             </div>
           </div>
         </div>

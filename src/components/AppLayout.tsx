@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
-import Header, { User } from './Header';
+import React from 'react';
+import Header from './Header';
 import NavigationBar from './NavigationBar';
+import { useUser } from '@/contexts/UserContext';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -17,17 +18,7 @@ export default function AppLayout({
   currentMonth = 'Dicembre 2024',
   isMonthClosed = false
 }: AppLayoutProps) {
-  const [currentUser, setCurrentUser] = useState<User>({ 
-    name: 'Maria Rossi', 
-    role: 'admin',
-    email: 'maria.rossi@poliestetica.com'
-  });
-
-  const handleUserChange = (user: User) => {
-    setCurrentUser(user);
-    // Qui potresti aggiungere logica per gestire il cambio utente
-    console.log('User changed to:', user);
-  };
+  const { user } = useUser();
 
   const handleSync = async () => {
     // Qui potresti aggiungere la logica di sincronizzazione
@@ -40,13 +31,12 @@ export default function AppLayout({
     <div className="min-h-screen bg-[#F5F7FA] flex flex-col">
       <header className="bg-white shadow-sm">
         <Header 
-          onUserChange={handleUserChange}
           onSync={handleSync}
           showSync={showSync}
           currentMonth={currentMonth}
           isMonthClosed={isMonthClosed}
         />
-        <NavigationBar userRole={currentUser.role} />
+        <NavigationBar userRole={user.role} />
       </header>
       
       <main className="flex-1 px-6 py-8">

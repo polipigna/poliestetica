@@ -12,6 +12,7 @@ import type { Medico, MedicoRegoleCosti } from '@/data/mock';
 import { prestazioni, prodotti } from '@/data/mock';
 import { MediciStore } from '@/services/stores/mediciStore';
 import type { MedicoExtended as MedicoExtendedStore } from '@/services/datasources/interfaces';
+import { useUser } from '@/contexts/UserContext';
 
 // Transform prestazioni to trattamentiDisponibili format
 const trattamentiDisponibili = prestazioni.map(p => ({
@@ -52,9 +53,8 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
   mediciIniziali,
   regoleCosti
 }) => {
-  // Simulazione ruolo utente - in produzione verrebbe da auth/context
-  const [userRole, setUserRole] = useState('admin'); // 'admin', 'segretaria', 'responsabile'
-  const isAdmin = userRole === 'admin';
+  // Ottieni ruolo utente dal context globale
+  const { user, isAdmin } = useUser();
   
   // Trasforma i medici iniziali nel formato esteso
   const [medici, setMedici] = useState<MedicoExtended[]>([]);
@@ -792,23 +792,10 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
   if (!selectedMedico) {
     return (
       <div className="space-y-6">
-        {/* Header con selector ruolo */}
+        {/* Header */}
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-semibold text-gray-800">Gestione Medici</h2>
           <div className="flex items-center gap-4">
-            {/* Selector ruolo per demo */}
-            <div className="flex items-center gap-2 bg-gray-100 px-3 py-2 rounded-lg">
-              <span className="text-sm text-gray-600">Ruolo:</span>
-              <select
-                value={userRole}
-                onChange={(e) => setUserRole(e.target.value)}
-                className="bg-transparent text-sm font-medium text-gray-800 focus:outline-none"
-              >
-                <option value="admin">Admin</option>
-                <option value="segretaria">Segretaria</option>
-                <option value="responsabile">Responsabile</option>
-              </select>
-            </div>
             {isAdmin && (
               <button
                 onClick={() => setShowNewMedico(true)}
@@ -1172,7 +1159,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
         <div className="flex items-center gap-3">
           {/* Indicatore ruolo */}
           <div className="bg-gray-100 px-3 py-1 rounded-lg">
-            <span className="text-sm text-gray-600">Ruolo: <strong>{userRole}</strong></span>
+            <span className="text-sm text-gray-600">Ruolo: <strong>{user.role}</strong></span>
           </div>
           
           {hasUnsavedChanges && (
