@@ -32,7 +32,9 @@ export interface RegolaCompenso {
 
 export interface CostoProdottoExtended {
   id: number;
-  nome: string;
+  codice: string;        // Codice prodotto (es: "PRT")
+  nome: string;          // Nome completo (es: "PREPARATO TRAP")
+  displayName?: string;  // Display formattato (es: "PRT - PREPARATO TRAP")
   costo: number;
   unitaMisura: string;
   nonDetrarre: boolean;

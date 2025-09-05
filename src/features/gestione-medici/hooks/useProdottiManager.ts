@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from 'react';
 import { ProdottiCostiManager } from '@/services/compensi';
+import { prodotti } from '@/data/mock';
 import * as XLSX from 'xlsx';
 import type { 
   MedicoExtended,
@@ -71,10 +72,29 @@ export function useProdottiManager({
     return medico?.costiProdotti || [];
   }, [medico]);
   
+  // Trasforma prodottiDisponibili nel formato corretto
+  const catalogoProdotti = useMemo(() => {
+    // Se prodottiDisponibili è passato e ha il formato corretto, usalo
+    if (prodottiDisponibili && prodottiDisponibili.length > 0) {
+      // Assicurati che abbia il campo codice
+      return prodottiDisponibili.map(p => ({
+        codice: (p as any).codice || '',
+        nome: (p as any).nome || '',
+        unitaMisura: (p as any).unitaMisura || (p as any).unita || 'unità'
+      }));
+    }
+    // Altrimenti usa i dati mock importati
+    return prodotti.map(p => ({
+      codice: p.codice,
+      nome: p.nome,
+      unitaMisura: p.unitaMisura || 'unità'
+    }));
+  }, [prodottiDisponibili]);
+  
   // Manager instance
   const createManager = useCallback(() => {
-    return new ProdottiCostiManager(prodotti, prodottiDisponibili);
-  }, [prodotti, prodottiDisponibili]);
+    return new ProdottiCostiManager(prodotti as any, catalogoProdotti);
+  }, [prodotti, catalogoProdotti]);
   
   // Add prodotto
   const addProdotto = useCallback((prodotto: Partial<CostoProdottoExtended>) => {
@@ -83,16 +103,24 @@ export function useProdottiManager({
     const manager = createManager();
     
     try {
-      const prodottoDisponibile = prodottiDisponibili.find(p => p.nome === prodotto.nome);
+      const prodottoDisponibile = prodottiDisponibili.find(p => 
+        (p as any).nome === prodotto.nome
+      );
+      
+      // Usa il codice del prodotto disponibile se esiste, altrimenti genera uno
+      const codice = prodotto.codice || 
+                     (prodottoDisponibile as any)?.codice || 
+                     prodotto.nome?.substring(0, 3).toUpperCase() || '';
       
       manager.add({
-        nome: prodotto.nome,
+        codice: codice,
+        nome: prodotto.nome || '',
         costo: prodotto.costo || 0,
-        unitaMisura: prodotto.unitaMisura || prodottoDisponibile?.unitaMisura || 'unità',
+        unitaMisura: prodotto.unitaMisura || (prodottoDisponibile as any)?.unitaMisura || 'unità',
         nonDetrarre: prodotto.nonDetrarre || false
       });
       
-      const updatedProdotti = manager.getAll();
+      const updatedProdotti = manager.getAll() as CostoProdottoExtended[];
       onUpdate(updatedProdotti);
       setShowAddModal(false);
     } catch (error) {
@@ -114,7 +142,7 @@ export function useProdottiManager({
         nonDetrarre: nuovoCosto === 0
       });
       
-      const updatedProdotti = manager.getAll();
+      const updatedProdotti = manager.getAll() as CostoProdottoExtended[];
       onUpdate(updatedProdotti);
       setEditingProdotto(null);
     } catch (error) {
@@ -131,7 +159,7 @@ export function useProdottiManager({
     
     try {
       manager.remove(id);
-      const updatedProdotti = manager.getAll();
+      const updatedProdotti = manager.getAll() as CostoProdottoExtended[];
       onUpdate(updatedProdotti);
     } catch (error) {
       console.error('Errore rimozione prodotto:', error);
@@ -155,6 +183,7 @@ export function useProdottiManager({
     try {
       // Prepara i dati per Excel
       const data = prodotti.map(p => ({
+        'Codice': p.codice,
         'Nome Prodotto': p.nome,
         'Unità di Misura': p.unitaMisura || 'unità',
         'Costo': p.costo
@@ -277,7 +306,7 @@ export function useProdottiManager({
       const manager = createManager();
       manager.confirmImport(importState.preview);
       
-      const updatedProdotti = manager.getAll();
+      const updatedProdotti = manager.getAll() as CostoProdottoExtended[];
       onUpdate(updatedProdotti);
       
       // Reset import state

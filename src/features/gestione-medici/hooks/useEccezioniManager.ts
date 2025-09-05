@@ -264,7 +264,7 @@ export function useEccezioniManager({
     // Controlla se il prodotto ha un costo configurato (se detraiCosto è true)
     if (newEccezione.prodotto && newEccezione.regola.detraiCosto && medico) {
       const prodottoConfigurato = (medico.costiProdotti || []).some(
-        cp => cp.nome === newEccezione.prodotto
+        cp => cp.codice === newEccezione.prodotto || cp.nome === newEccezione.prodotto
       );
       
       if (!prodottoConfigurato) {

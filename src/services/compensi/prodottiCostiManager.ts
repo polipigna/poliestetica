@@ -1,6 +1,7 @@
 import { CostoProdotto } from './compensiCalculator';
 
 export interface CreateProdottoDTO {
+  codice: string;
   nome: string;
   costo: number;
   unitaMisura: string;
@@ -14,6 +15,7 @@ export interface UpdateProdottoDTO {
 }
 
 export interface ImportProdottoData {
+  codice?: string;
   nome: string;
   costo: number;
 }
@@ -35,11 +37,11 @@ export interface ImportResult {
 export class ProdottiCostiManager {
   private prodotti: CostoProdotto[] = [];
   private nextId: number = 1;
-  private prodottiDisponibili: Array<{ nome: string; unitaMisura: string }> = [];
+  private prodottiDisponibili: Array<{ codice: string; nome: string; unitaMisura: string }> = [];
   
   constructor(
     prodottiIniziali?: CostoProdotto[],
-    catalogoProdotti?: Array<{ nome: string; unitaMisura: string }>
+    catalogoProdotti?: Array<{ codice: string; nome: string; unitaMisura: string }>
   ) {
     if (prodottiIniziali) {
       this.prodotti = [...prodottiIniziali];
@@ -65,10 +67,14 @@ export class ProdottiCostiManager {
     return this.prodotti.find(p => p.nome === nome);
   }
   
+  getByCodice(codice: string): CostoProdotto | undefined {
+    return this.prodotti.find(p => p.codice === codice);
+  }
+  
   add(data: CreateProdottoDTO): CostoProdotto {
-    // Verifica duplicati
-    if (this.getByNome(data.nome)) {
-      throw new Error(`Prodotto "${data.nome}" già esistente`);
+    // Verifica duplicati per codice
+    if (this.getByCodice(data.codice)) {
+      throw new Error(`Prodotto con codice "${data.codice}" già esistente`);
     }
     
     // Valida costo
@@ -76,6 +82,7 @@ export class ProdottiCostiManager {
     
     const nuovoProdotto: CostoProdotto = {
       id: this.nextId++,
+      codice: data.codice,
       nome: data.nome,
       costo,
       unitaMisura: data.unitaMisura,
@@ -208,7 +215,14 @@ export class ProdottiCostiManager {
     
     // Aggiungi nuovi prodotti
     importResult.nuoviProdotti.forEach(nuovo => {
+      // Genera un codice dal nome per prodotti importati da Excel
+      // Usa le prime 3 lettere in maiuscolo o il nome completo se troppo corto
+      const codiceGenerato = nuovo.nome.length >= 3 
+        ? nuovo.nome.substring(0, 3).toUpperCase() 
+        : nuovo.nome.toUpperCase();
+      
       this.add({
+        codice: codiceGenerato,
         nome: nuovo.nome,
         costo: nuovo.costo,
         unitaMisura: nuovo.unitaMisura
@@ -347,14 +361,14 @@ export class ProdottiCostiManager {
   /**
    * Imposta il catalogo prodotti disponibili
    */
-  setCatalogoProdotti(catalogo: Array<{ nome: string; unitaMisura: string }>): void {
+  setCatalogoProdotti(catalogo: Array<{ codice: string; nome: string; unitaMisura: string }>): void {
     this.prodottiDisponibili = catalogo;
   }
   
   /**
    * Ottieni prodotti disponibili ma non ancora aggiunti
    */
-  getProdottiDisponibiliNonAggiunti(): Array<{ nome: string; unitaMisura: string }> {
+  getProdottiDisponibiliNonAggiunti(): Array<{ codice: string; nome: string; unitaMisura: string }> {
     const prodottiAggiunti = new Set(this.prodotti.map(p => p.nome));
     return this.prodottiDisponibili.filter(p => !prodottiAggiunti.has(p.nome));
   }

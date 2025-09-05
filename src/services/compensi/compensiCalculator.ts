@@ -16,7 +16,8 @@ export interface Eccezione {
 
 export interface CostoProdotto {
   id: number;
-  nome: string;
+  codice: string;        // Codice prodotto (es: "PRT")
+  nome: string;          // Nome completo (es: "PREPARATO TRAP")
   costo: number;
   unitaMisura: string;
   nonDetrarre?: boolean;

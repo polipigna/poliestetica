@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { MediciStore } from '@/services/stores/mediciStore';
+import { prodottiMap } from '@/data/mock';
 import type { 
   MedicoExtended, 
   CreateMedicoDTO, 
@@ -47,13 +48,20 @@ export function useMediciData(): UseMediciDataReturn {
           su: 'netto',
           detraiCosto: true
         },
-        costiProdotti: (m.costiProdotti || []).map((cp: any, idx: number) => ({
-          id: cp.id || idx + 1,
-          nome: cp.codiceProdotto || cp.nome,
-          costo: cp.costo || 0,
-          unitaMisura: cp.unitaMisura || 'unità',
-          nonDetrarre: cp.nonDetrarre || false
-        })),
+        costiProdotti: (m.costiProdotti || []).map((cp: any, idx: number) => {
+          // Trova il prodotto di riferimento per ottenere nome completo e unità
+          const prodottoRef = prodottiMap[cp.codiceProdotto || cp.codice];
+          
+          return {
+            id: cp.id || idx + 1,
+            codice: cp.codiceProdotto || cp.codice || '',
+            nome: prodottoRef?.nome || cp.nomeProdotto || cp.codiceProdotto || cp.nome || '',
+            displayName: prodottoRef ? `${cp.codiceProdotto} - ${prodottoRef.nome}` : (cp.codiceProdotto || cp.nome),
+            costo: cp.costo || 0,
+            unitaMisura: prodottoRef?.unita || cp.unitaMisura || 'unità',
+            nonDetrarre: cp.nonDetrarre || false
+          };
+        }),
         eccezioni: (m.eccezioni || []).map((ecc: any, idx: number) => ({
           id: ecc.id || idx + 1,
           trattamento: ecc.codice || ecc.trattamento,
@@ -180,7 +188,7 @@ export function useMediciData(): UseMediciDataReturn {
       // Trasforma costiProdotti nel formato store se presenti
       if (updates.costiProdotti) {
         storeUpdates.costiProdotti = updates.costiProdotti.map(cp => ({
-          codiceProdotto: cp.nome,
+          codiceProdotto: cp.codice || cp.nome,
           nomeProdotto: cp.nome,
           costo: cp.costo,
           unitaMisura: cp.unitaMisura,

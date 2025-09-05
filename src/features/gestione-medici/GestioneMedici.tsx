@@ -18,6 +18,7 @@ import {
   ProdottiCostiManager,
   type CalcoloParams
 } from '@/services/compensi';
+import { useModalManager } from './hooks';
 
 // Transform prestazioni to trattamentiDisponibili format
 const trattamentiDisponibili = prestazioni.map(p => ({
@@ -27,7 +28,9 @@ const trattamentiDisponibili = prestazioni.map(p => ({
 
 // Transform prodotti to prodottiDisponibili format
 const prodottiDisponibili = prodotti.map(p => ({
-  nome: p.codice,
+  codice: p.codice,
+  nome: p.nome,
+  displayName: `${p.codice} - ${p.nome}`,
   unitaMisura: p.unita,
   prezzoDefault: p.prezzoDefault
 }));
@@ -94,13 +97,22 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
             su: m.regolaBase.calcolaSu,
             detraiCosto: m.regolaBase.detraiCosti
           },
-          costiProdotti: m.costiProdotti.map((cp, idx) => ({
-            id: idx + 1,
-            nome: cp.codiceProdotto,
-            costo: cp.costo,
-            unitaMisura: 'unità',
-            nonDetrarre: false
-          })),
+          costiProdotti: m.costiProdotti.map((cp, idx) => {
+            // Trova il prodotto nei dati di riferimento
+            const prodottoRef = prodottiDisponibili.find(p => 
+              p.codice === cp.codiceProdotto
+            );
+            
+            return {
+              id: idx + 1,
+              codice: cp.codiceProdotto,
+              nome: prodottoRef?.nome || cp.codiceProdotto,
+              displayName: prodottoRef?.displayName || cp.codiceProdotto,
+              costo: cp.costo,
+              unitaMisura: prodottoRef?.unitaMisura || 'unità',
+              nonDetrarre: false
+            };
+          }),
           eccezioni: m.eccezioni.map((ecc, idx) => ({
             id: idx + 1,
             trattamento: ecc.codice,
@@ -145,14 +157,10 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
   const [selectedMedico, setSelectedMedico] = useState<MedicoExtended | null>(null);
   const [activeTab, setActiveTab] = useState('anagrafica');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<number | null>(null);
-  const [showAddProdotto, setShowAddProdotto] = useState(false);
   const [editingProdotto, setEditingProdotto] = useState<any>(null);
   const [editingEccezione, setEditingEccezione] = useState<any>(null);
-  const [showImportProdotti, setShowImportProdotti] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importPreview, setImportPreview] = useState<any>(null);
-  const [showImportConfirm, setShowImportConfirm] = useState(false);
   
   // Stati per il simulatore
   const [simulazione, setSimulazione] = useState({
@@ -164,7 +172,8 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
   const [risultatoSimulazione, setRisultatoSimulazione] = useState<any>(null);
 
 
-  const [showNewMedico, setShowNewMedico] = useState(false);
+  // Hook per gestione modali
+  const modalManager = useModalManager();
   const [newMedico, setNewMedico] = useState({
     nome: '',
     cognome: '',
@@ -187,7 +196,6 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
     costiProdotti: [],
     eccezioni: []
   });
-  const [showAddEccezione, setShowAddEccezione] = useState(false);
   const [newEccezione, setNewEccezione] = useState({
     trattamento: '',
     prodotto: '',
@@ -273,7 +281,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
         
         setSelectedMedico(updatedMedico);
         setHasUnsavedChanges(true);
-        setShowImportConfirm(false);
+        modalManager.closeImportConfirm();
         setImportFile(null);
         setImportPreview(null);
       } catch (error) {
@@ -289,7 +297,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
       
       try {
         const costiProdotti = (selectedMedico.costiProdotti || []).map(cp => ({
-          codiceProdotto: cp.nome,
+          codiceProdotto: cp.codice || cp.nome,
           nomeProdotto: cp.nome,
           costo: cp.costo
         }));
@@ -349,7 +357,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
       
       // Aggiorna costi prodotti (in aggiunta a quello già fatto sopra per non-admin)
       const costiProdotti = (selectedMedico.costiProdotti || []).map(cp => ({
-        codiceProdotto: cp.nome,
+        codiceProdotto: cp.codice || cp.nome,
         nomeProdotto: cp.nome,
         costo: cp.costo
       }));
@@ -380,7 +388,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
   const handleDeleteMedico = async (id: number) => {
     try {
       await mediciStore.deleteMedico(id);
-      setShowDeleteConfirm(null);
+      modalManager.closeDeleteConfirm();
       if (selectedMedico?.id === id) {
         setSelectedMedico(null);
       }
@@ -401,10 +409,11 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
       );
       
       try {
-        const prodottoDisponibile = prodottiDisponibili.find(p => p.nome === prodotto.nome);
+        const prodottoDisponibile = prodottiDisponibili.find(p => p.codice === prodotto.codice);
         
         manager.add({
-          nome: prodotto.nome,
+          codice: prodotto.codice,
+          nome: prodottoDisponibile?.nome || prodotto.nome,
           costo: prodotto.costo,
           unitaMisura: prodottoDisponibile?.unitaMisura || 'unità',
           nonDetrarre: prodotto.nonDetrarre
@@ -427,6 +436,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
     if (selectedMedico) {
       // Prepara i dati per Excel
       const data = (selectedMedico.costiProdotti || []).map(p => ({
+        'Codice': p.codice,
         'Nome Prodotto': p.nome,
         'Unità di Misura': p.unitaMisura || 'unità',
         'Costo': p.costo
@@ -503,20 +513,20 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
             error: 'Nessuna modifica o nuovo prodotto valido rilevato nel file importato.',
             prodottiNonValidi: importResult.prodottiNonValidi
           });
-          setShowImportConfirm(true);
+          modalManager.openImportConfirm();
           return;
         }
         
         // Salva il preview per il modal di conferma
         setImportPreview(importResult);
-        setShowImportConfirm(true);
-        setShowImportProdotti(false); // Chiudi il modal di import
+        modalManager.openImportConfirm();
+        // Il modal manager gestisce automaticamente la chiusura di importProdotti
         
       } catch (error) {
         setImportPreview({
           error: `Errore durante la lettura del file Excel: ${error instanceof Error ? error.message : 'Errore sconosciuto'}`
         });
-        setShowImportConfirm(true);
+        modalManager.openImportConfirm();
       }
     };
     
@@ -524,7 +534,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
       setImportPreview({
         error: 'Errore durante la lettura del file'
       });
-      setShowImportConfirm(true);
+      modalManager.openImportConfirm();
     };
     
     // Leggi il file come binary string (nota: deprecated ma ancora funzionante per compatibilità)
@@ -654,7 +664,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
           <div className="flex items-center gap-4">
             {isAdmin && (
               <button
-                onClick={() => setShowNewMedico(true)}
+                onClick={modalManager.openNewMedico}
                 className="px-4 py-2 rounded-lg transition-colors flex items-center gap-2 font-medium shadow-md"
                 style={{ backgroundColor: '#03A6A6', color: '#FFFFFF' }}
                 onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#028a8a'}
@@ -737,7 +747,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setShowDeleteConfirm(medico.id);
+                      modalManager.openDeleteConfirm(medico.id);
                     }}
                     className="text-red-600 hover:text-red-700 text-sm font-medium"
                   >
@@ -750,7 +760,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
         </div>
 
         {/* Modal Conferma Eliminazione */}
-        {showDeleteConfirm && (
+        {modalManager.modals.deleteConfirm && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-md w-full">
               <h3 className="text-lg font-semibold mb-4">Conferma Eliminazione</h3>
@@ -759,7 +769,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
               </p>
               <div className="flex gap-3">
                 <button
-                  onClick={() => setShowDeleteConfirm(null)}
+                  onClick={modalManager.closeDeleteConfirm}
                   className="flex-1 px-4 py-2 border border-gray-300 rounded-lg font-medium"
                   style={{ backgroundColor: '#FFFFFF', color: '#374151' }}
                   onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#F9FAFB'}
@@ -768,7 +778,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                   Annulla
                 </button>
                 <button
-                  onClick={() => handleDeleteMedico(showDeleteConfirm)}
+                  onClick={() => handleDeleteMedico(modalManager.modals.deleteConfirm!)}
                   className="flex-1 px-4 py-2 rounded-lg font-medium"
                   style={{ backgroundColor: '#DC2626', color: '#FFFFFF' }}
                   onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#B91C1C'}
@@ -782,7 +792,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
         )}
 
         {/* Modal Nuovo Medico */}
-        {showNewMedico && (
+        {modalManager.modals.newMedico && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
               <h3 className="text-lg font-semibold mb-4">Nuovo Medico</h3>
@@ -895,7 +905,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
               <div className="mt-6 flex gap-3">
                 <button
                   onClick={() => {
-                    setShowNewMedico(false);
+                    modalManager.closeNewMedico();
                     setNewMedico({
                       nome: '',
                       cognome: '',
@@ -951,7 +961,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                         alert('Errore nella creazione del medico');
                       });
                       
-                      setShowNewMedico(false);
+                      modalManager.closeNewMedico();
                       setNewMedico({
                         nome: '',
                         cognome: '',
@@ -1594,7 +1604,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                       <span style={{ color: '#FFFFFF' }}>Export Excel</span>
                     </button>
                     <button
-                      onClick={() => setShowImportProdotti(true)}
+                      onClick={modalManager.openImportProdotti}
                       className="px-3 py-2 rounded-lg text-sm font-medium shadow-sm flex items-center gap-2"
                       style={{ backgroundColor: '#6192A9', color: '#FFFFFF' }}
                       onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#5581a0'}
@@ -1605,7 +1615,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                       <span style={{ color: '#FFFFFF' }}>Import Excel</span>
                     </button>
                     <button
-                      onClick={() => setShowAddProdotto(true)}
+                      onClick={modalManager.openAddProdotto}
                       className="px-4 py-2 rounded-lg text-sm font-medium shadow-md flex items-center gap-2"
                       style={{ backgroundColor: '#03A6A6', color: '#FFFFFF' }}
                       onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#028a8a'}
@@ -1624,9 +1634,11 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                         key={prodotto.id}
                         className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
                       >
-                        <div className="flex items-center gap-4 flex-1">
+                        <div className="flex items-center gap-2 flex-1">
+                          <span className="text-gray-900 font-mono text-sm">{prodotto.codice}</span>
+                          <span className="text-gray-600">-</span>
                           <span className="text-gray-800 font-medium">{prodotto.nome}</span>
-                          <span className="text-xs text-gray-500">per {prodotto.unitaMisura}</span>
+                          <span className="text-xs text-gray-500 ml-2">per {prodotto.unitaMisura}</span>
                           {prodotto.costo === 0 && (
                             <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
                               Non detratto
@@ -1762,7 +1774,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                 <h3 className="text-lg font-semibold text-gray-800">Eccezioni alle Regole</h3>
                 {isAdmin && (
                   <button
-                    onClick={() => setShowAddEccezione(true)}
+                    onClick={modalManager.openAddEccezione}
                     className="px-4 py-2 rounded-lg text-sm font-medium shadow-md flex items-center gap-2"
                     style={{ backgroundColor: '#03A6A6', color: '#FFFFFF' }}
                     onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#028a8a'}
@@ -2384,7 +2396,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
       </div>
 
       {/* Modal Aggiungi Prodotto */}
-      {showAddProdotto && (
+      {modalManager.modals.addProdotto && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <h3 className="text-lg font-semibold mb-4">Aggiungi Costo Prodotto</h3>
@@ -2513,7 +2525,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
 
             <div className="mt-6 flex gap-3">
               <button
-                onClick={() => setShowAddProdotto(false)}
+                onClick={modalManager.closeAddProdotto}
                 className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
               >
                 Annulla
@@ -2532,13 +2544,17 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                       return;
                     }
                     
+                    // Trova il prodotto selezionato per ottenere il codice
+                    const prodottoSelezionato = prodottiDisponibili.find(p => p.nome === nome);
+                    
                     const costoNum = regolaValidator.sanitizeValorePositivo(parseFloat(costo) || 0); // Previene valori negativi
                     handleAddProdotto({
+                      codice: prodottoSelezionato?.codice || nome.substring(0, 3).toUpperCase(),
                       nome: nome,
                       costo: costoNum,
                       nonDetrarre: costoNum === 0
                     });
-                    setShowAddProdotto(false);
+                    modalManager.closeAddProdotto();
                   } else {
                     alert('Seleziona un prodotto dalla lista');
                   }
@@ -2556,7 +2572,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
       )}
 
       {/* Modal Aggiungi Eccezione */}
-      {showAddEccezione && (
+      {modalManager.modals.addEccezione && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">Nuova Eccezione</h3>
@@ -2888,7 +2904,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
             <div className="mt-6 flex gap-3">
               <button
                 onClick={() => {
-                  setShowAddEccezione(false);
+                  modalManager.closeAddEccezione();
                   setNewEccezione({
                     trattamento: '',
                     prodotto: '',
@@ -2958,7 +2974,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                       alert(error instanceof Error ? error.message : 'Errore nell\'aggiunta dell\'eccezione');
                       return;
                     }
-                    setShowAddEccezione(false);
+                    modalManager.closeAddEccezione();
                     setNewEccezione({
                       trattamento: '',
                       prodotto: '',
@@ -2988,7 +3004,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
       )}
 
       {/* Modal Import Prodotti */}
-      {showImportProdotti && (
+      {modalManager.modals.importProdotti && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <h3 className="text-lg font-semibold mb-4">Import Prodotti da Excel</h3>
@@ -3049,7 +3065,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
             <div className="mt-6 flex gap-3">
               <button
                 onClick={() => {
-                  setShowImportProdotti(false);
+                  modalManager.closeImportProdotti();
                   setImportFile(null);
                 }}
                 className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
@@ -3076,7 +3092,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
       )}
 
       {/* Modal Conferma Import */}
-      {showImportConfirm && importPreview && (
+      {modalManager.modals.importConfirm && importPreview && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">Conferma Import Prodotti</h3>
@@ -3098,7 +3114,7 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                 )}
                 <button
                   onClick={() => {
-                    setShowImportConfirm(false);
+                    modalManager.closeImportConfirm();
                     setImportPreview(null);
                     setImportFile(null);
                   }}
@@ -3184,9 +3200,9 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                 <div className="flex gap-3 mt-6">
                   <button
                     onClick={() => {
-                      setShowImportConfirm(false);
+                      modalManager.closeImportConfirm();
                       setImportPreview(null);
-                      setShowImportProdotti(true); // Riapri il modal import
+                      modalManager.openImportProdotti(); // Riapri il modal import
                     }}
                     className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
                   >
