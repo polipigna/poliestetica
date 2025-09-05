@@ -34,20 +34,33 @@ class FattureStore {
 }
 ```
 
-#### MediciStore
+#### MediciStore ✅ FATTO
 ```typescript
 // services/stores/mediciStore.ts
 class MediciStore {
+  // Singleton pattern implementato
+  static getInstance(): MediciStore
+  
   // Carica medici (da mock o localStorage)
-  getMedici(): Medico[]
+  getMedici(forceRefresh?: boolean): Promise<MedicoExtended[]>
+  getMedico(id: number): Promise<MedicoExtended | null>
+  
+  // CRUD completo
+  createMedico(data: CreateMedicoDTO): Promise<MedicoExtended>
+  updateMedico(id: number, updates: UpdateMedicoDTO): Promise<MedicoExtended>
+  deleteMedico(id: number): Promise<void>
   
   // Salva modifiche a regole/costi
-  updateMedico(id: number, updates: Partial<Medico>): void
-  updateRegoleCompensi(medicoId: number, regole: RegoleCompensi): void
-  updateCostiProdotti(medicoId: number, costi: CostiProdotti): void
+  updateRegoleCompensi(medicoId: number, regole: RegoleCompensi): Promise<void>
+  updateCostiProdotti(medicoId: number, costi: CostoProdotto[]): Promise<void>
+  updateEccezioni(medicoId: number, eccezioni: Eccezione[]): Promise<void>
   
   // Reset ai dati mock originali
-  reset(): void
+  reset(): Promise<void>
+  
+  // Export/Import
+  export(): Promise<ExportData>
+  import(data: ImportData): Promise<void>
 }
 ```
 
@@ -65,13 +78,17 @@ class PeriodoContabileStore {
 }
 ```
 
-### 1.2 Floating Reset Button ✅ FATTO
+### 1.2 Floating Reset Button ✅ FATTO E AGGIORNATO
 ```typescript
 // components/common/ResetButton.tsx
 - Posizione fissa bottom-right
 - Icona refresh/trash
 - Conferma prima del reset
-- Reset completo di tutti gli store
+- Reset completo di tutti gli store:
+  ✅ FattureStore.reset()
+  ✅ FattureGenerator.reset()
+  ✅ MediciStore.reset() (aggiunto)
+  ⏳ PeriodoStore.reset() (futuro)
 ```
 
 ### 1.3 Modifiche a FattureGenerator ✅ FATTO
@@ -205,6 +222,11 @@ const STORAGE_KEYS = {
 ## Timeline Implementazione
 
 - **Step 1** ✅ COMPLETATO: Store base + Reset button
+  - ✅ FattureStore implementato
+  - ✅ MediciStore implementato (NEW!)
+  - ✅ BaseStore (classe astratta riutilizzabile)
+  - ✅ DataSource pattern (interfaces, MockDataSource, Factory)
+  - ✅ Reset button aggiornato per tutti gli store
 - **Step 2**: Integrazione Import/Compensi
 - **Step 3**: Periodo contabile
 - **Step 4**: Export e reporting

@@ -10,6 +10,8 @@ import {
 import * as XLSX from 'xlsx';
 import type { Medico, MedicoRegoleCosti } from '@/data/mock';
 import { prestazioni, prodotti } from '@/data/mock';
+import { MediciStore } from '@/services/stores/mediciStore';
+import type { MedicoExtended as MedicoExtendedStore } from '@/services/datasources/interfaces';
 
 // Transform prestazioni to trattamentiDisponibili format
 const trattamentiDisponibili = prestazioni.map(p => ({
@@ -56,60 +58,87 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
   
   // Trasforma i medici iniziali nel formato esteso
   const [medici, setMedici] = useState<MedicoExtended[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   
+  // Ottieni istanza singleton dello store
+  const mediciStore = MediciStore.getInstance();
+  
+  // Funzione per caricare medici dallo store
+  const loadMedici = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Carica medici dallo store (prima volta da mock, poi da localStorage)
+      const mediciFromStore = await mediciStore.getMedici();
+      
+      // Trasforma nel formato interno del componente
+      const mediciCompleti = mediciFromStore.map(m => {
+        const medicoEsteso: MedicoExtended = {
+          ...m,
+          specialita: 'Medicina Estetica',
+          email: `${m.nome.toLowerCase()}.${m.cognome.toLowerCase()}@email.com`,
+          telefono: '333 ' + Math.floor(Math.random() * 9000000 + 1000000),
+          codiceFiscale: m.cf,
+          partitaIva: m.piva,
+          iban: 'IT' + Math.random().toString().slice(2, 27),
+          indirizzo: 'Via Demo 123, Padova',
+          attivo: true,
+          regolaBase: {
+            tipo: m.regolaBase.tipo,
+            valore: m.regolaBase.valore,
+            valoreX: m.regolaBase.valoreX,
+            valoreY: m.regolaBase.valoreY,
+            su: m.regolaBase.calcolaSu,
+            detraiCosto: m.regolaBase.detraiCosti
+          },
+          costiProdotti: m.costiProdotti.map((cp, idx) => ({
+            id: idx + 1,
+            nome: cp.codiceProdotto,
+            costo: cp.costo,
+            unitaMisura: 'unità',
+            nonDetrarre: false
+          })),
+          eccezioni: m.eccezioni.map((ecc, idx) => ({
+            id: idx + 1,
+            trattamento: ecc.codice,
+            prodotto: '',
+            regola: {
+              tipo: ecc.tipo,
+              valore: ecc.valore,
+              valoreX: ecc.valoreX,
+              valoreY: ecc.valoreY,
+              su: ecc.calcolaSu,
+              detraiCosto: ecc.detraiCosti
+            }
+          }))
+        };
+        return medicoEsteso;
+      });
+      
+      setMedici(mediciCompleti);
+    } catch (error) {
+      console.error('Errore caricamento medici dallo store:', error);
+      alert('Errore nel caricamento dei medici');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    // Combina i dati dei medici con le loro regole costi
-    const mediciCompleti = mediciIniziali.map(m => {
-      const regole = regoleCosti[m.id.toString()];
-      const medicoEsteso: MedicoExtended = {
-        ...m,
-        specialita: 'Medicina Estetica',
-        email: `${m.nome.toLowerCase()}.${m.cognome.toLowerCase()}@email.com`,
-        telefono: '333 ' + Math.floor(Math.random() * 9000000 + 1000000),
-        codiceFiscale: m.cf,
-        partitaIva: m.piva,
-        iban: 'IT' + Math.random().toString().slice(2, 27),
-        indirizzo: 'Via Demo 123, Padova',
-        attivo: true,
-        regolaBase: regole ? {
-          tipo: regole.regolaBase.tipo,
-          valore: regole.regolaBase.valore,
-          valoreX: regole.regolaBase.valoreX,
-          valoreY: regole.regolaBase.valoreY,
-          su: regole.regolaBase.calcolaSu,
-          detraiCosto: regole.regolaBase.detraiCosti
-        } : {
-          tipo: 'percentuale',
-          valore: 50,
-          su: 'netto',
-          detraiCosto: true
-        },
-        costiProdotti: regole?.costiProdotti ? Object.entries(regole.costiProdotti).map(([codice, costo], idx) => ({
-          id: idx + 1,
-          nome: codice,
-          costo: costo,
-          unitaMisura: 'unità',
-          nonDetrarre: false
-        })) : [],
-        eccezioni: regole?.eccezioni ? regole.eccezioni.map((ecc, idx) => ({
-          id: idx + 1,
-          trattamento: ecc.codice,
-          prodotto: '',
-          regola: {
-            tipo: ecc.tipo,
-            valore: ecc.valore,
-            valoreX: ecc.valoreX,
-            valoreY: ecc.valoreY,
-            su: ecc.calcolaSu,
-            detraiCosto: ecc.detraiCosti
-          }
-        })) : []
-      };
-      return medicoEsteso;
+    // Carica medici al mount del componente
+    loadMedici();
+    
+    // Sottoscrivi agli aggiornamenti dello store per refresh automatici
+    const unsubscribe = mediciStore.subscribe(() => {
+      loadMedici();
     });
     
-    setMedici(mediciCompleti);
-  }, [mediciIniziali, regoleCosti]);
+    // Cleanup
+    return () => {
+      unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Array vuoto = solo al mount
   
 
   const [selectedMedico, setSelectedMedico] = useState<MedicoExtended | null>(null);
@@ -300,18 +329,25 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     // Se non è admin, salva solo i costi prodotti
     if (!isAdmin) {
-      const updatedMedici = medici.map(m => 
-        m.id === selectedMedico?.id ? {
-          ...m,
-          costiProdotti: selectedMedico?.costiProdotti || []
-        } : m
-      );
-      setMedici(updatedMedici);
-      setHasUnsavedChanges(false);
-      alert('Costi prodotti salvati con successo!');
+      if (!selectedMedico) return;
+      
+      try {
+        const costiProdotti = (selectedMedico.costiProdotti || []).map(cp => ({
+          codiceProdotto: cp.nome,
+          nomeProdotto: cp.nome,
+          costo: cp.costo
+        }));
+        await mediciStore.updateCostiProdotti(selectedMedico.id, costiProdotti);
+        
+        setHasUnsavedChanges(false);
+        alert('Costi prodotti salvati con successo!');
+      } catch (error) {
+        console.error('Errore salvataggio costi:', error);
+        alert('Errore nel salvataggio dei costi prodotti');
+      }
       return;
     }
     
@@ -376,18 +412,69 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
       }
     }
     
-    // Aggiorna anche la lista principale
-    const updatedMedici = medici.map(m => 
-      m.id === selectedMedico?.id ? selectedMedico : m
-    ).filter((m): m is MedicoExtended => m !== null);
-    setMedici(updatedMedici);
-    setHasUnsavedChanges(false);
-    alert('Modifiche salvate con successo!');
+    // Salva nello store tutti i dati del medico
+    try {
+      // Aggiorna dati base medico
+      await mediciStore.updateMedico(selectedMedico.id, {
+        nome: selectedMedico.nome,
+        cognome: selectedMedico.cognome,
+        cf: selectedMedico.codiceFiscale || selectedMedico.cf,
+        piva: selectedMedico.partitaIva || selectedMedico.piva
+      });
+      
+      // Aggiorna regole compensi
+      await mediciStore.updateRegoleCompensi(selectedMedico.id, {
+        tipo: selectedMedico.regolaBase.tipo,
+        valore: selectedMedico.regolaBase.valore,
+        valoreX: selectedMedico.regolaBase.valoreX,
+        valoreY: selectedMedico.regolaBase.valoreY,
+        calcolaSu: selectedMedico.regolaBase.su,
+        detraiCosti: selectedMedico.regolaBase.detraiCosto
+      });
+      
+      // Aggiorna costi prodotti (in aggiunta a quello già fatto sopra per non-admin)
+      const costiProdotti = (selectedMedico.costiProdotti || []).map(cp => ({
+        codiceProdotto: cp.nome,
+        nomeProdotto: cp.nome,
+        costo: cp.costo
+      }));
+      await mediciStore.updateCostiProdotti(selectedMedico.id, costiProdotti);
+      
+      // Aggiorna eccezioni
+      const eccezioni = (selectedMedico.eccezioni || []).map(ecc => ({
+        codice: ecc.trattamento,
+        descrizione: ecc.trattamento,
+        tipo: ecc.regola.tipo,
+        valore: ecc.regola.valore,
+        valoreX: ecc.regola.valoreX,
+        valoreY: ecc.regola.valoreY,
+        calcolaSu: ecc.regola.su,
+        detraiCosti: ecc.regola.detraiCosto
+      }));
+      await mediciStore.updateEccezioni(selectedMedico.id, eccezioni);
+      
+      setHasUnsavedChanges(false);
+      alert('Modifiche salvate con successo!');
+      // loadMedici verrà chiamato automaticamente dal subscribe
+    } catch (error) {
+      console.error('Errore salvataggio:', error);
+      alert('Errore nel salvataggio delle modifiche');
+    }
   };
 
-  const handleDeleteMedico = (id: number) => {
-    setMedici(medici.filter(m => m.id !== id));
-    setShowDeleteConfirm(null);
+  const handleDeleteMedico = async (id: number) => {
+    try {
+      await mediciStore.deleteMedico(id);
+      setShowDeleteConfirm(null);
+      if (selectedMedico?.id === id) {
+        setSelectedMedico(null);
+      }
+      alert('Medico eliminato con successo');
+      // loadMedici verrà chiamato automaticamente dal subscribe
+    } catch (error) {
+      console.error('Errore eliminazione:', error);
+      alert('Errore nell\'eliminazione del medico');
+    }
   };
 
   const handleAddProdotto = (prodotto: any) => {
@@ -996,14 +1083,31 @@ const GestioneMedici: React.FC<GestioneMediciProps> = ({
                 <button
                   onClick={() => {
                     if (newMedico.nome && newMedico.cognome && newMedico.codiceFiscale && newMedico.partitaIva && newMedico.email) {
-                      const medicoToAdd: MedicoExtended = {
-                        ...newMedico,
-                        id: Date.now(),
-                        nomeCompleto: `${newMedico.nome} ${newMedico.cognome}`,
+                      // Crea nuovo medico nello store
+                      mediciStore.createMedico({
+                        nome: newMedico.nome,
+                        cognome: newMedico.cognome,
                         cf: newMedico.codiceFiscale,
                         piva: newMedico.partitaIva
-                      };
-                      setMedici([...medici, medicoToAdd]);
+                      }).then(async (createdMedico) => {
+                        // Se ha regole personalizzate, aggiornale
+                        if (newMedico.regolaBase.tipo !== 'percentuale' || newMedico.regolaBase.valore !== 50) {
+                          await mediciStore.updateRegoleCompensi(createdMedico.id, {
+                            tipo: newMedico.regolaBase.tipo as 'percentuale' | 'scaglioni' | 'quota_fissa' | 'fisso',
+                            valore: newMedico.regolaBase.valore,
+                            valoreX: newMedico.regolaBase.valoreX,
+                            valoreY: newMedico.regolaBase.valoreY,
+                            calcolaSu: newMedico.regolaBase.su as 'netto' | 'lordo',
+                            detraiCosti: newMedico.regolaBase.detraiCosto
+                          });
+                        }
+                        alert('Medico creato con successo');
+                        // loadMedici verrà chiamato automaticamente dal subscribe
+                      }).catch(error => {
+                        console.error('Errore creazione medico:', error);
+                        alert('Errore nella creazione del medico');
+                      });
+                      
                       setShowNewMedico(false);
                       setNewMedico({
                         nome: '',

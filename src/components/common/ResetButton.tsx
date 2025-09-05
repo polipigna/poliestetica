@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { FattureStore } from '@/services/stores/fattureStore';
 import { FattureGenerator } from '@/utils/fattureGenerator';
+import { MediciStore } from '@/services/stores/mediciStore';
 
 export default function ResetButton() {
   const [showConfirm, setShowConfirm] = useState(false);
@@ -17,6 +18,10 @@ export default function ResetButton() {
       
       // Reset e rigenera FattureGenerator
       FattureGenerator.reset();
+      
+      // Reset MediciStore (nuovo!)
+      const mediciStore = MediciStore.getInstance();
+      await mediciStore.reset();
       
       // Ricarica la pagina per aggiornare tutti i componenti
       window.location.reload();
@@ -110,7 +115,8 @@ export default function ResetButton() {
           <ul className="text-sm text-gray-600 dark:text-gray-300 mb-4 space-y-1">
             <li>• Fatture disponibili</li>
             <li>• Fatture importate</li>
-            <li>• Medici e regole (in futuro)</li>
+            <li>• Medici e regole compensi</li>
+            <li>• Costi prodotti ed eccezioni</li>
             <li>• Periodi contabili (in futuro)</li>
           </ul>
           <p className="text-sm text-red-600 dark:text-red-400 font-semibold mb-4">
